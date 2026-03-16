@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import pymysql
+from datetime import datetime
 
 # 1. Konekcija sa bazom
 def get_conn():
@@ -23,6 +24,15 @@ def get_working_data():
     conn.close()
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
+# Funkcija za bojenje isteklih datuma u tabelama
+def highlight_expiry(val):
+    if pd.isna(val) or str(val) == '-': return ""
+    try:
+        if pd.to_datetime(val).date() < datetime.now().date():
+            return "background-color: #ff4b4b; color: white"
+    except: pass
+    return ""
+
 # KONFIGURACIJA STRANICE
 st.set_page_config(page_title="Pregled Opreme", layout="wide")
 st.title("🔍 Radni Panel - Evidencija Opreme")
@@ -34,7 +44,7 @@ try:
         df.columns = [c.strip().lower() for c in df.columns]
 
         # --- GLAVNA PRETRAGA ---
-        search_query = st.text_input("🔍 Pretraži tabelu (ukucaj bilo šta):", key="main_search")
+        search_query = st.text_input("🔍 Brza pretraga kroz celu tabelu:", key="main_search")
         if search_query:
             mask = df.astype(str).apply(lambda r: r.str.contains(search_query, case=False).any(), axis=1)
             df_display = df[mask]
@@ -46,33 +56,27 @@ try:
 
         # --- MATIČNI KARTON ---
         st.write("---")
-        st.subheader("📄 Matični Karton i Istorija")
-
-        # PRVO DEFINIŠEMO BROJ (Sidebar)
-        izabrani_broj = st.sidebar.text_input("🔢 Unesi Inventarski Broj za Karton:", "")
+        izabrani_broj = st.sidebar.text_input("🔢 Unesi Inventarski Broj za Matični Karton:", "")
 
         if izabrani_broj:
             rezultat = df[df['inventarni_broj'].astype(str) == str(izabrani_broj)]
 
             if not rezultat.empty:
-                # Koristimo .iloc[0] da izbegnemo grešku sa serijom podataka
                 instrument = rezultat.iloc[0]
                 model_instrumenta = str(instrument.get('naziv_proizvodjac', '')).strip()
                 inv_broj_str = str(izabrani_broj)
 
-                st.markdown(f"### Instrument br: **{izabrani_broj}**")
+                st.subheader(f"📄 Matični Karton i Istorija za br: {izabrani_broj}")
                 
-                tab1, tab2, tab3, tab4 = st.tabs(["📋 Osnovni podaci", "🌾 Kulture i Opsezi", "🛠️ Servis i Provere", "📏 Etaloniranje"])
+                tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Osnovni podaci", "🌾 Kulture", "🛠️ Servis", "📏 Etaloniranje", "⚖️ Baždarenje"])
 
                 with tab1:
                     polja = {
-                        "Vrsta opreme": "vrsta_opreme", "Proizvođač": "proizvodjac", "Naziv": "naziv_proizvodjac",
-                        "Serijski broj": "seriski_broj", "Datum baždarenja": "datum_bazdarenja", "Važi do": "vazi_do",
-                        "Radna temperatura": "radna_temperatura", "Relativna vlažnost": "rel_vlaznost",
-                        "Opseg merenja": "opseg_merenja", "Klasa tačnosti": "klasa_tacnosti", "Preciznost": "preciznost", "Podeok": "podeok"
+                        "Vrsta": "vrsta_opreme", "Proizvođač": "proizvodjac", "Model": "naziv_proizvodjac",
+                        "Serijski br.": "seriski_broj", "Zadnje baždarenje": "datum_bazdarenja", "Važi do": "vazi_do",
+                        "Opseg": "opseg_merenja", "Klasa": "klasa_tacnosti", "Preciznost": "preciznost", "Podeok": "podeok"
                     }
                     popunjena = [(l, instrument[c]) for l, c in polja.items() if c in instrument and pd.notna(instrument[c]) and str(instrument[c]).strip() not in ["", "-", "nan", "None", "0"]]
-                    
                     cols = st.columns(4)
                     for i, (label, val) in enumerate(popunjena):
                         with cols[i % 4]:
@@ -80,39 +84,41 @@ try:
                             st.write(f"**{val}**")
 
                 with tab2:
-                    st.write(f"Kulture za model: `{model_instrumenta}`")
+                    st.write(f"Definisani opsezi za: `{model_instrumenta}`")
                     conn = get_conn()
-                    # Ovde koristimo 'naziv_opreme' kao vezu u tabeli kulture_opsezi
-                    df_k = pd.read_sql("SELECT kultura, min_opseg, max_opseg FROM kulture_opsezi WHERE naziv_opreme = %s", conn, params=(model_instrumenta,))
+                    df_k = pd.read_sql("SELECT * FROM kulture_opsezi WHERE naziv_opreme = %s", conn, params=(model_instrumenta,))
                     conn.close()
-                    st.table(df_k) if not df_k.empty else st.info("Nema definisanih kultura.")
+                    st.dataframe(df_k, use_container_width=True, hide_index=True, column_config={"id":None, "naziv_opreme":None}) if not df_k.empty else st.info("Nema kultura.")
 
                 with tab3:
                     conn = get_conn()
-                    df_s = pd.read_sql("SELECT datum_servisa, opis_kvara, uradjeno FROM istorija_servisa WHERE inventarni_broj = %s", conn, params=(inv_broj_str,))
-                    df_p = pd.read_sql("SELECT datum_provere, rezultat, napomena FROM istorija_provera WHERE inventarni_broj = %s", conn, params=(inv_broj_str,))
+                    df_s = pd.read_sql("SELECT datum_servisa, broj_zapisnika, opis_intervencije, izvrsio_servis FROM istorija_servisa WHERE inventarni_broj = %s ORDER BY datum_servisa DESC", conn, params=(inv_broj_str,))
                     conn.close()
-                    c1, c2 = st.columns(2)
-                    with c1: 
-                        st.write("Servis:")
-                        st.dataframe(df_s, hide_index=True) if not df_s.empty else st.write("Nema servisa.")
-                    with c2: 
-                        st.write("Provere:")
-                        st.dataframe(df_p, hide_index=True) if not df_p.empty else st.write("Nema provera.")
+                    st.dataframe(df_s, use_container_width=True, hide_index=True) if not df_s.empty else st.write("Nema servisa.")
 
                 with tab4:
                     conn = get_conn()
-                    df_e = pd.read_sql("SELECT datum_etaloniranja, broj_uverenja, laboratorija, vazi_do FROM istorija_etaloniranja WHERE inventarni_broj = %s", conn, params=(inv_broj_str,))
+                    df_e = pd.read_sql("SELECT datum_etaloniranja, broj_sertifikata, vazi_do, laboratorija FROM istorija_etaloniranja WHERE inventarni_broj = %s ORDER BY datum_etaloniranja DESC", conn, params=(inv_broj_str,))
                     conn.close()
-                    st.dataframe(df_e, use_container_width=True, hide_index=True) if not df_e.empty else st.info("Nema etaloniranja.")
+                    if not df_e.empty:
+                        st.dataframe(df_e.style.applymap(highlight_expiry, subset=['vazi_do']), use_container_width=True, hide_index=True)
+                    else: st.info("Nema etaloniranja.")
+
+                with tab5:
+                    conn = get_conn()
+                    df_b = pd.read_sql("SELECT datum_bazdarenja, broj_uverenja, vazi_do FROM istorija_bazdarenja WHERE inventarni_broj = %s ORDER BY datum_bazdarenja DESC", conn, params=(inv_broj_str,))
+                    conn.close()
+                    if not df_b.empty:
+                        st.dataframe(df_b.style.applymap(highlight_expiry, subset=['vazi_do']), use_container_width=True, hide_index=True)
+                    else: st.info("Nema baždarenja.")
 
             else:
                 st.warning("Instrument nije pronađen.")
         else:
-            st.info("Ukucaj inventarski broj levo za detalje.")
+            st.info("Ukucaj inventarski broj u polje levo da otvoriš karton.")
 
     else:
-        st.warning("Baza je prazna.")
+        st.warning("Tabela oprema je prazna.")
 
 except Exception as e:
     st.error(f"Greška: {e}")
