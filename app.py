@@ -2,61 +2,71 @@ import streamlit as st
 import pandas as pd
 import pymysql
 
-# 1. Podešavanje stranice
-st.set_page_config(page_title="Sistem Oprema - Admin", layout="wide")
-
+# 1. ISTA KONEKCIJA KAO U ADMINU
 def get_conn():
     return pymysql.connect(
         host="mysql-22f7bcfd-nogalod-c393.d.aivencloud.com",
-        user="avnadmin",
-        password="AVNS_0qoNdSQVUuF9wTfHN8D",
-        port=27698,
+        user="avnadmin", 
+        password="AVNS_0qoNdSQVUuF9wTfHN8D", 
+        port=27698, 
         database="defaultdb",
         cursorclass=pymysql.cursors.DictCursor,
         ssl={'ssl-mode': 'REQUIRED'}
     )
 
-st.title("📊 Glavna Evidencija Opreme")
+# 2. FUNKCIJA KOJA GARANTUJE PRIKAZ (Preuzeta logika iz tvog Admina)
+def get_working_data():
+    conn = get_conn()
+    with conn.cursor() as cur:
+        # Vučemo sve podatke iz tabele oprema
+        cur.execute("SELECT * FROM oprema")
+        rows = cur.fetchall()
+    conn.close()
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+# KONFIGURACIJA STRANICE
+st.set_page_config(page_title="Pregled Opreme", layout="wide")
+st.title("🔍 Radni Panel - Evidencija Opreme")
 
 try:
-    conn = get_conn()
-    # Čitamo celu tabelu koju si upravo uvezao
-    df = pd.read_sql("SELECT * FROM oprema", conn)
-    conn.close()
+    df = get_working_data()
 
     if not df.empty:
-        # Standardizacija naziva kolona
+        # Standardizacija kolona (da pretraga ne pravi greške)
         df.columns = [c.strip().lower() for c in df.columns]
 
-        # Brza pretraga kroz sve podatke (naziv, radnik, status...)
-        search = st.text_input("🔍 Pretraži tabelu:", "")
-        if search:
-            mask = df.astype(str).apply(lambda r: r.str.contains(search, case=False).any(), axis=1)
-            df_prikaz = df[mask]
-        else:
-            df_prikaz = df
+        # --- PAMETNA PRETRAGA ---
+        st.info("Pretražite po inventarnom broju, nazivu, radniku ili bar-kodu.")
+        search_query = st.text_input("Unesite pojam za pretragu:", key="search_worker")
 
-        # --- PRIKAZ TABELE (Kao na tvojoj slici, ali bez ID-a) ---
-        st.data_editor(
-            df_prikaz,
+        if search_query:
+            # Pretraga kroz sve kolone istovremeno (case-insensitive)
+            mask = df.astype(str).apply(lambda r: r.str.contains(search_query, case=False).any(), axis=1)
+            df_display = df[mask]
+        else:
+            df_display = df
+
+        # --- PRIKAZ TABELE (Samo za čitanje - bezbedno za radnike) ---
+        # Koristimo data_editor ali sa disabled=True za sve kolone
+        st.dataframe(
+            df_display,
             use_container_width=True,
             hide_index=True,
             column_config={
-                "id": None,  # SAKRIVAMO ID (ne treba nam u webu)
-                "inventarni_broj": st.column_config.TextColumn("Inv. Broj", disabled=True),
-                "bar_kod": st.column_config.TextColumn("Bar Kod", disabled=True),
+                "id": None,  # Sakrivamo ID (kao u Adminu)
+                "oprema_id": None, # Sakrivamo FK ako postoji
                 "vazi_do": st.column_config.DateColumn("Važi do", format="DD.MM.YYYY"),
-                "status": st.column_config.SelectboxColumn(
-                    "Status", 
-                    options=["Ispravno", "Rashod", "Servis", "Rezerva"]
-                )
+                "status": st.column_config.TextColumn("Status")
             }
         )
-        
-        st.success(f"Pronađeno realnih aparata: {len(df_prikaz)}")
+
+        st.caption(f"Pronađeno stavki: {len(df_display)}")
 
     else:
-        st.warning("Baza je povezana, ali tabela 'oprema' je prazna.")
+        st.warning("Trenutno nema podataka u bazi. Kontaktirajte administratora.")
 
 except Exception as e:
-    st.error(f"Greška: {e}")
+    st.error(f"Greška pri učitavanju podataka: {e}")
+
+st.sidebar.markdown("### Uputstvo")
+st.sidebar.write("Ovaj panel služi isključivo za pregled i pretragu opreme. Za izmene koristite Admin Panel.")
