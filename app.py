@@ -1,37 +1,23 @@
-import streamlit as st
-import pandas as pd
-import pymysql
-from datetime import datetime
-
-# Postavke stranice na samom vrhu
-st.set_page_config(page_title="Oprema Admin", layout="wide")
-
-# Funkcija za konekciju (Aiven MySQL)
-def get_conn():
-    return pymysql.connect(
-        host="mysql-22f7bcfd-nogalod-c393.d.aivencloud.com",
-        user="avnadmin",
-        password="AVNS_0qoNdSQVUuF9wTfHN8D",
-        port=27698,
-        database="defaultdb",
-        cursorclass=pymysql.cursors.DictCursor,
-        ssl={'ssl-mode': 'REQUIRED'}
-    )
-
-st.title("🚜 Glavna Evidencija Opreme")
-st.write("---")
-
 try:
     conn = get_conn()
-    # Vučemo sve podatke
+    # 1. Vučemo sve podatke iz baze
     df = pd.read_sql("SELECT * FROM oprema", conn)
     conn.close()
 
     if not df.empty:
-        # 1. Sređivanje naziva kolona (uklanjamo razmake i prebacujemo u mala slova)
+        # 2. Sređivanje naziva kolona (uklanjamo razmake i mala slova)
         df.columns = [c.strip().lower() for c in df.columns]
+
+        # 3. ČIŠĆENJE SMEĆA: Izbacujemo redove gde je inventarni_broj isti kao naziv kolone
+        # Proveravamo da li kolona postoji pre nego što je filtriramo
+        if 'inventarni_broj' in df.columns:
+            df = df[df['inventarni_broj'].astype(str).str.lower() != 'inventarni_broj']
+            df = df[df['inventarni_broj'].astype(str).str.lower() != 'inventarni broj']
         
-        # 2. Pretraga (radi kroz sve kolone odjednom)
+        # Dodatno čišćenje: izbaci potpuno prazne redove ako ih ima
+        df = df.dropna(how='all')
+
+        # 4. Pretraga
         search = st.text_input("🔍 Pretraži (po nazivu, bar-kodu, radniku...):", "")
         
         if search:
@@ -40,23 +26,17 @@ try:
         else:
             df_prikaz = df
 
-        # 3. Prikaz tabele
-        # Streamlit automatski pravi interaktivnu tabelu (sortiranje, širenje)
+        # 5. Prikaz tabele
         st.dataframe(
             df_prikaz, 
             use_container_width=True, 
             hide_index=True
         )
 
-        st.success(f"Prikazano stavki: {len(df_prikaz)}")
+        st.success(f"Pronađeno realnih aparata: {len(df_prikaz)}")
         
     else:
-        st.warning("Baza je povezana, ali tabela 'oprema' nema podataka.")
+        st.warning("Tabela je prazna.")
 
 except Exception as e:
-    st.error(f"Došlo je do greške: {e}")
-    st.info("Proveri da li su podaci za konekciju ispravni i da li je Aiven baza aktivna.")
-
-# Footer
-st.markdown("---")
-st.caption("Verzija 2.0 | Optimizovano za brzi deploy")
+    st.error(f"Greška: {e}")
