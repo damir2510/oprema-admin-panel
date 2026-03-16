@@ -1,12 +1,10 @@
 import streamlit as st
 import pandas as pd
 import pymysql
-from datetime import datetime
 
-# 1. Konfiguracija stranice (Mora biti prva komanda)
+# 1. Konfiguracija
 st.set_page_config(page_title="Oprema Admin", layout="wide")
 
-# 2. Funkcija za konekciju
 def get_conn():
     return pymysql.connect(
         host="mysql-22f7bcfd-nogalod-c393.d.aivencloud.com",
@@ -18,41 +16,39 @@ def get_conn():
         ssl={'ssl-mode': 'REQUIRED'}
     )
 
-st.title("🚜 Glavna Evidencija Opreme")
+st.title("🚜 Provera podataka u bazi")
 
 try:
     conn = get_conn()
-    df = pd.read_sql("SELECT * FROM oprema", conn)
+    df_raw = pd.read_sql("SELECT * FROM oprema", conn)
     conn.close()
 
-    if not df.empty:
-        # Sređivanje naziva kolona
-        df.columns = [c.strip().lower() for c in df.columns]
+    if not df_raw.empty:
+        # POKAZUJE NAM ŠTA JE STVARNO U BAZI (Sve kolone)
+        st.write("### 1. Nazivi kolona koje baza šalje:")
+        st.code(list(df_raw.columns))
 
-        # --- ČIŠĆENJE SMEĆA (Izbacujemo naslove koji su ušli u bazu kao redovi) ---
-        if 'inventarni_broj' in df.columns:
-            # Izbacujemo redove gde je inventarni broj zapravo tekst "inventarni_broj" ili "inventarni broj"
-            df = df[df['inventarni_broj'].astype(str).str.lower() != 'inventarni_broj']
-            df = df[df['inventarni_broj'].astype(str).str.lower() != 'inventarni broj']
-        
-        # Izbaci potpuno prazne redove
-        df = df.dropna(how='all')
+        # Sređivanje naziva kolona radi lakšeg rada
+        df_raw.columns = [c.strip().lower() for c in df_raw.columns]
 
-        # --- PRETRAGA ---
-        search = st.text_input("🔍 Pretraži (po nazivu, bar-kodu, radniku...):", "")
-        if search:
-            mask = df.astype(str).apply(lambda r: r.str.contains(search, case=False).any(), axis=1)
-            df_display = df[mask]
+        # POKAZUJE NAM PRVIH 5 REDOVA (Da vidimo kako izgledaju podaci)
+        st.write("### 2. Prvih 5 redova iz baze (sirovi podaci):")
+        st.dataframe(df_raw.head(5))
+
+        # --- TEST ČIŠĆENJA ---
+        # Ovde ćemo biti manje strogi - izbacujemo red samo ako je TAČNO "inventarni_broj"
+        if 'inventarni_broj' in df_raw.columns:
+             # Privremeno isključujemo strogi filter da vidimo sve
+             df_cisto = df_raw[df_raw['inventarni_broj'].astype(str).str.lower().str.strip() != 'inventarni_broj']
         else:
-            df_display = df
+             df_cisto = df_raw
 
-        # --- PRIKAZ ---
-        st.dataframe(df_display, use_container_width=True, hide_index=True)
-        st.success(f"Pronađeno realnih aparata: {len(df_display)}")
+        st.write("### 3. Tabela nakon osnovnog čišćenja:")
+        st.dataframe(df_cisto, use_container_width=True, hide_index=True)
+        st.success(f"Pronađeno redova: {len(df_cisto)}")
 
     else:
-        st.warning("Tabela je prazna.")
+        st.error("Baza je povezana, ali je tabela 'oprema' prazna!")
 
 except Exception as e:
-    # Ovde se javljala greška jer 'st' nije bio definisan gore
     st.error(f"Greška: {e}")
