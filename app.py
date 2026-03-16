@@ -16,39 +16,61 @@ def get_conn():
         ssl={'ssl-mode': 'REQUIRED'}
     )
 
-st.title("🚜 Provera podataka u bazi")
+st.title("🚜 Glavna Evidencija Opreme")
 
 try:
     conn = get_conn()
-    df_raw = pd.read_sql("SELECT * FROM oprema", conn)
+    df = pd.read_sql("SELECT * FROM oprema", conn)
     conn.close()
 
-    if not df_raw.empty:
-        # POKAZUJE NAM ŠTA JE STVARNO U BAZI (Sve kolone)
-        st.write("### 1. Nazivi kolona koje baza šalje:")
-        st.code(list(df_raw.columns))
+    if not df.empty:
+        # Sređivanje naziva kolona radi lakšeg rada (male i bez razmaka)
+        df.columns = [c.strip().lower() for c in df.columns]
 
-        # Sređivanje naziva kolona radi lakšeg rada
-        df_raw.columns = [c.strip().lower() for c in df_raw.columns]
+        # --- PRECIZNIJE ČIŠĆENJE ---
+        # Izbacujemo samo redove gde je 'inventarni_broj' baš tekst 'inventarni_broj' 
+        # i gde je 'id' (koji je obično broj) zapravo tekst 'id'
+        df = df[df['inventarni_broj'].astype(str).str.strip().lower() != 'inventarni_broj']
+        df = df[df['id'].astype(str).str.strip().lower() != 'id']
+        
+        # Izbaci potpuno prazne redove
+        df = df.dropna(how='all')
 
-        # POKAZUJE NAM PRVIH 5 REDOVA (Da vidimo kako izgledaju podaci)
-        st.write("### 2. Prvih 5 redova iz baze (sirovi podaci):")
-        st.dataframe(df_raw.head(5))
+        # --- ODABIR KOLONA ZA PRIKAZ (da ne bude preširoko) ---
+        # Možeš dodati ili izbaciti kolone iz ove liste ispod
+        vazne_kolone = [
+            'inventarni_broj', 'bar_kod', 'vrsta_opreme', 
+            'naziv_proizvodjac', 'seriski_broj', 'status', 
+            'trenutni_radnik', 'vazi_do'
+        ]
+        
+        # Proveravamo koje od ovih kolona stvarno postoje u bazi
+        postojace = [c for c in vazne_kolone if c in df.columns]
 
-        # --- TEST ČIŠĆENJA ---
-        # Ovde ćemo biti manje strogi - izbacujemo red samo ako je TAČNO "inventarni_broj"
-        if 'inventarni_broj' in df_raw.columns:
-             # Privremeno isključujemo strogi filter da vidimo sve
-             df_cisto = df_raw[df_raw['inventarni_broj'].astype(str).str.lower().str.strip() != 'inventarni_broj']
+        # --- PRETRAGA ---
+        search = st.text_input("🔍 Pretraži (po nazivu, radniku, statusu...):", "")
+        if search:
+            mask = df.astype(str).apply(lambda r: r.str.contains(search, case=False).any(), axis=1)
+            df_display = df[mask]
         else:
-             df_cisto = df_raw
+            df_display = df
 
-        st.write("### 3. Tabela nakon osnovnog čišćenja:")
-        st.dataframe(df_cisto, use_container_width=True, hide_index=True)
-        st.success(f"Pronađeno redova: {len(df_cisto)}")
+        # --- FINALNI PRIKAZ ---
+        # Prikazujemo samo važne kolone, ali pretraga radi kroz SVE
+        st.dataframe(
+            df_display[postojace], 
+            use_container_width=True, 
+            hide_index=True
+        )
+        
+        st.success(f"Pronađeno realnih aparata: {len(df_display)}")
+        
+        # Opciono: Dugme da vidiš sve kolone ako ti zatrebaju
+        if st.checkbox("Prikaži sve tehničke detalje (sve kolone)"):
+            st.write(df_display)
 
     else:
-        st.error("Baza je povezana, ali je tabela 'oprema' prazna!")
+        st.warning("Tabela je prazna.")
 
 except Exception as e:
     st.error(f"Greška: {e}")
