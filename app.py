@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import pymysql
 
-# 1. Konfiguracija
-st.set_page_config(page_title="Oprema Admin", layout="wide")
+# 1. Postavka stranice
+st.set_page_config(page_title="Evidencija Opreme", layout="wide")
 
 def get_conn():
     return pymysql.connect(
@@ -20,57 +20,44 @@ st.title("🚜 Glavna Evidencija Opreme")
 
 try:
     conn = get_conn()
+    # Čitamo tabelu bez ikakvih filtera u SQL-u
     df = pd.read_sql("SELECT * FROM oprema", conn)
     conn.close()
 
     if not df.empty:
-        # Sređivanje naziva kolona radi lakšeg rada (male i bez razmaka)
+        # Standardizujemo nazive kolona da budu mali bez razmaka
         df.columns = [c.strip().lower() for c in df.columns]
 
-        # --- PRECIZNIJE ČIŠĆENJE ---
-        # Izbacujemo samo redove gde je 'inventarni_broj' baš tekst 'inventarni_broj' 
-        # i gde je 'id' (koji je obično broj) zapravo tekst 'id'
-        df = df[df['inventarni_broj'].astype(str).str.strip().lower() != 'inventarni_broj']
-        df = df[df['id'].astype(str).str.strip().lower() != 'id']
-        
-        # Izbaci potpuno prazne redove
-        df = df.dropna(how='all')
+        # IZBACUJEMO SAMO REDOVE KOJI SU NASLOVI (ako ih ima u bazi)
+        if 'inventarni_broj' in df.columns:
+            df = df[df['inventarni_broj'].astype(str).str.lower() != 'inventarni_broj']
 
-        # --- ODABIR KOLONA ZA PRIKAZ (da ne bude preširoko) ---
-        # Možeš dodati ili izbaciti kolone iz ove liste ispod
-        vazne_kolone = [
-            'inventarni_broj', 'bar_kod', 'vrsta_opreme', 
-            'naziv_proizvodjac', 'seriski_broj', 'status', 
-            'trenutni_radnik', 'vazi_do'
-        ]
-        
-        # Proveravamo koje od ovih kolona stvarno postoje u bazi
-        postojace = [c for c in vazne_kolone if c in df.columns]
-
-        # --- PRETRAGA ---
-        search = st.text_input("🔍 Pretraži (po nazivu, radniku, statusu...):", "")
+        # 2. Pretraga
+        search = st.text_input("🔍 Pretraži bilo šta (naziv, radnik, status...):", "")
         if search:
             mask = df.astype(str).apply(lambda r: r.str.contains(search, case=False).any(), axis=1)
             df_display = df[mask]
         else:
             df_display = df
 
-        # --- FINALNI PRIKAZ ---
-        # Prikazujemo samo važne kolone, ali pretraga radi kroz SVE
-        st.dataframe(
-            df_display[postojace], 
-            use_container_width=True, 
-            hide_index=True
+        # 3. PRIKAZ (Sakrivanje ID-a i zaključavanje ključnih polja)
+        st.data_editor(
+            df_display,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "id": None,  # SAKRIVA ID POTPUNO
+                "inventarni_broj": st.column_config.TextColumn("Inventarni Broj", disabled=True),
+                "bar_kod": st.column_config.TextColumn("Bar Kod", disabled=True),
+                "vazi_do": st.column_config.DateColumn("Važi do", format="DD.MM.YYYY"),
+                "status": st.column_config.SelectboxColumn("Status", options=["Ispravno", "Rashod", "Servis", "Rezerva"])
+            }
         )
         
-        st.success(f"Pronađeno realnih aparata: {len(df_display)}")
-        
-        # Opciono: Dugme da vidiš sve kolone ako ti zatrebaju
-        if st.checkbox("Prikaži sve tehničke detalje (sve kolone)"):
-            st.write(df_display)
+        st.success(f"Pronađeno aparata: {len(df_display)}")
 
     else:
-        st.warning("Tabela je prazna.")
+        st.info("Baza je povezana, ali nema podataka u tabeli 'oprema'.")
 
 except Exception as e:
-    st.error(f"Greška: {e}")
+    st.error(f"Greška pri povezivanju: {e}")
