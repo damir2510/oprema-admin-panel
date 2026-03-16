@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 import pymysql
 
-st.set_page_config(page_title="Čišćenje Podataka", layout="wide")
+# 1. Podešavanje stranice
+st.set_page_config(page_title="Sistem Oprema - Admin", layout="wide")
 
 def get_conn():
     return pymysql.connect(
@@ -15,39 +16,47 @@ def get_conn():
         ssl={'ssl-mode': 'REQUIRED'}
     )
 
-st.title("🚜 Provera i Čišćenje Tabele")
+st.title("📊 Glavna Evidencija Opreme")
 
 try:
     conn = get_conn()
+    # Čitamo celu tabelu koju si upravo uvezao
     df = pd.read_sql("SELECT * FROM oprema", conn)
     conn.close()
 
     if not df.empty:
-        # 1. Prikaži nam SVE što je baza vratila (da vidimo to "smeće")
-        st.write("### 🚩 Sirovi podaci iz baze (pre čišćenja):")
-        st.dataframe(df.head(10)) 
+        # Standardizacija naziva kolona
+        df.columns = [c.strip().lower() for c in df.columns]
 
-        # 2. ČIŠĆENJE: Izbacujemo redove gde je sadržaj isti kao naziv kolone
-        # Prolazimo kroz svaku kolonu i brišemo redove koji su identični nazivu te kolone
-        for col in df.columns:
-            df = df[df[col].astype(str).str.lower().str.strip() != col.lower()]
-
-        # 3. DODATNO: Izbacujemo redove gde su ključna polja prazna ili samo zarezi
-        if 'inventarni_broj' in df.columns:
-            df = df[df['inventarni_broj'].notna()]
-            df = df[df['inventarni_broj'] != ""]
-
-        st.write("---")
-        st.write(f"### ✅ Podaci nakon čišćenja (Preostalo: {len(df)} redova):")
-        
-        if len(df) > 0:
-            st.dataframe(df, use_container_width=True, hide_index=True)
+        # Brza pretraga kroz sve podatke (naziv, radnik, status...)
+        search = st.text_input("🔍 Pretraži tabelu:", "")
+        if search:
+            mask = df.astype(str).apply(lambda r: r.str.contains(search, case=False).any(), axis=1)
+            df_prikaz = df[mask]
         else:
-            st.error("⚠️ Filter je obrisao SVE redove. To znači da su u bazi SVAKI red i SVAKA kolona identični nazivima kolona.")
-            st.info("Rešenje: Moraš obrisati tabelu (Truncate) i ponoviti Import, ali u DBeaveru štikliraj 'Header' opciju.")
+            df_prikaz = df
+
+        # --- PRIKAZ TABELE (Kao na tvojoj slici, ali bez ID-a) ---
+        st.data_editor(
+            df_prikaz,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "id": None,  # SAKRIVAMO ID (ne treba nam u webu)
+                "inventarni_broj": st.column_config.TextColumn("Inv. Broj", disabled=True),
+                "bar_kod": st.column_config.TextColumn("Bar Kod", disabled=True),
+                "vazi_do": st.column_config.DateColumn("Važi do", format="DD.MM.YYYY"),
+                "status": st.column_config.SelectboxColumn(
+                    "Status", 
+                    options=["Ispravno", "Rashod", "Servis", "Rezerva"]
+                )
+            }
+        )
+        
+        st.success(f"Pronađeno realnih aparata: {len(df_prikaz)}")
 
     else:
-        st.warning("Tabela u bazi je prazna.")
+        st.warning("Baza je povezana, ali tabela 'oprema' je prazna.")
 
 except Exception as e:
     st.error(f"Greška: {e}")
