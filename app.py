@@ -2,8 +2,7 @@ import streamlit as st
 import pandas as pd
 import pymysql
 
-# 1. Osnovna konfiguracija
-st.set_page_config(page_title="Test Podataka", layout="wide")
+st.set_page_config(page_title="Čišćenje Podataka", layout="wide")
 
 def get_conn():
     return pymysql.connect(
@@ -16,27 +15,39 @@ def get_conn():
         ssl={'ssl-mode': 'REQUIRED'}
     )
 
-st.title("🔍 Provera tabele: Oprema")
+st.title("🚜 Provera i Čišćenje Tabele")
 
 try:
     conn = get_conn()
-    # Uzimamo SVE bez ikakvih uslova
     df = pd.read_sql("SELECT * FROM oprema", conn)
     conn.close()
 
     if not df.empty:
-        st.success(f"Uspešno povučeno {len(df)} redova iz baze!")
+        # 1. Prikaži nam SVE što je baza vratila (da vidimo to "smeće")
+        st.write("### 🚩 Sirovi podaci iz baze (pre čišćenja):")
+        st.dataframe(df.head(10)) 
+
+        # 2. ČIŠĆENJE: Izbacujemo redove gde je sadržaj isti kao naziv kolone
+        # Prolazimo kroz svaku kolonu i brišemo redove koji su identični nazivu te kolone
+        for col in df.columns:
+            df = df[df[col].astype(str).str.lower().str.strip() != col.lower()]
+
+        # 3. DODATNO: Izbacujemo redove gde su ključna polja prazna ili samo zarezi
+        if 'inventarni_broj' in df.columns:
+            df = df[df['inventarni_broj'].notna()]
+            df = df[df['inventarni_broj'] != ""]
+
+        st.write("---")
+        st.write(f"### ✅ Podaci nakon čišćenja (Preostalo: {len(df)} redova):")
         
-        # Prikazujemo prvih 10 redova u najjednostavnijem formatu
-        st.write("### Prvih 10 zapisa:")
-        st.dataframe(df.head(10), use_container_width=True)
-        
-        # Ispisujemo nazive kolona da potvrdimo da su tu
-        st.write("### Kolone koje su pronađene:")
-        st.write(list(df.columns))
+        if len(df) > 0:
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.error("⚠️ Filter je obrisao SVE redove. To znači da su u bazi SVAKI red i SVAKA kolona identični nazivima kolona.")
+            st.info("Rešenje: Moraš obrisati tabelu (Truncate) i ponoviti Import, ali u DBeaveru štikliraj 'Header' opciju.")
 
     else:
-        st.warning("Konekcija je uspela, ali je tabela 'oprema' u bazi potpuno PRAZNA.")
+        st.warning("Tabela u bazi je prazna.")
 
 except Exception as e:
-    st.error(f"Greška pri povezivanju na bazu: {e}")
+    st.error(f"Greška: {e}")
