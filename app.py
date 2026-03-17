@@ -57,7 +57,6 @@ try:
             rezultat = df[df['inventarni_broj'].astype(str) == str(izabrani_broj)]
             if not rezultat.empty:
                 instrument = rezultat.iloc[0]
-                # Ovde uzimamo naziv_proizvodjac za dalju pretragu kultura
                 model_instrumenta = str(instrument.get('naziv_proizvodjac', '')).strip()
                 inv_broj_str = str(izabrani_broj)
 
@@ -79,35 +78,24 @@ try:
                             st.write(f"**{val}**")
 
                 with tab2:
-    # 1. Provera da li uopšte imamo naziv modela
-    if model_instrumenta and model_instrumenta not in ["None", "nan", "", "-"]:
-        st.write(f"Definisani opsezi za: **{model_instrumenta}**")
-        
-        try:
-            conn = get_conn()
-            # SQL upit
-            query_k = """
-                SELECT kultura, opseg_vlage, protein 
-                FROM kulture_opsezi 
-                WHERE naziv_proizvodjac = %s
-            """
-            df_k = pd.read_sql(query_k, conn, params=(model_instrumenta,))
-            conn.close()
+                    # Provera da li imamo naziv modela za pretragu kultura
+                    if model_instrumenta and model_instrumenta not in ["None", "nan", "", "-"]:
+                        st.write(f"Definisani opsezi za: **{model_instrumenta}**")
+                        try:
+                            conn = get_conn()
+                            query_k = "SELECT kultura, opseg_vlage, protein FROM kulture_opsezi WHERE naziv_proizvodjac = %s"
+                            df_k = pd.read_sql(query_k, conn, params=(model_instrumenta,))
+                            conn.close()
 
-            if not df_k.empty:
-                # Izbacujemo kolone koje su potpuno prazne (npr. protein kod vlagomera)
-                df_k = df_k.dropna(axis=1, how='all')
-                st.dataframe(df_k, use_container_width=True, hide_index=True)
-            else:
-                st.info(f"U tabeli 'kulture_opsezi' nema podataka pod nazivom: {model_instrumenta}")
-                
-        except Exception as e:
-            st.error(f"Greška u Tabu 2: {e}")
-    else:
-        # Poruka ako je u glavnoj tabeli polje 'naziv_proizvodjac' prazno
-        st.warning("⚠️ Ovaj instrument u glavnoj tabeli nema upisan 'Naziv/Model', pa ne mogu da pronađem kulture.")
-        st.info("Rešenje: U Admin panelu dopunite polje 'naziv_proizvodjac' za ovaj inventarski broj.")
-
+                            if not df_k.empty:
+                                df_k = df_k.dropna(axis=1, how='all')
+                                st.dataframe(df_k, use_container_width=True, hide_index=True)
+                            else:
+                                st.info(f"U tabeli kulture_opsezi nema podataka za model: {model_instrumenta}")
+                        except Exception as e:
+                            st.error(f"Greška u Tabu 2: {e}")
+                    else:
+                        st.warning("⚠️ Naziv instrumenta je prazan u bazi, ne mogu da učitam kulture.")
 
                 with tab3:
                     conn = get_conn()
@@ -133,7 +121,7 @@ try:
             else:
                 st.warning("Instrument nije pronađen.")
         else:
-            st.info("Ukucaj inventarski broj u polje levo da otvoriš karton.")
+            st.info("Ukucaj inventarski broj levo da otvoriš karton.")
     else:
         st.warning("Tabela oprema je prazna.")
 except Exception as e:
