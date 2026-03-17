@@ -41,7 +41,7 @@ st.title("🔍 Radni Panel - Evidencija Opreme")
 try:
     df = get_working_data()
     if not df.empty:
-        # Čišćenje naslova iz redova
+        # Čišćenje naslova iz redova u glavnoj tabeli
         if 'inventarni_broj' in df.columns:
             df = df[df['inventarni_broj'].astype(str).str.lower() != 'inventarni_broj']
 
@@ -58,10 +58,11 @@ try:
 
         st.write("---")
         
-        # --- MATIČNI KARTON ---
+        # --- MATIČNI KARTON (SIDEBAR) ---
         izabrani_broj = st.sidebar.text_input("🔢 Unesi Inventarski Broj:", "")
 
         if izabrani_broj:
+            # Tražimo podatke za konkretan instrument
             rezultat = df[df['inventarni_broj'].astype(str) == str(izabrani_broj)]
             
             if not rezultat.empty:
@@ -71,6 +72,7 @@ try:
 
                 st.subheader(f"📄 Matični Karton br: {izabrani_broj}")
                 
+                # SVI TABOVI MORAJU BITI OVDE UNUTRA
                 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Osnovni podaci", "🌾 Kulture", "🛠️ Servis", "📏 Etaloniranje", "⚖️ Baždarenje"])
 
                 with tab1:
@@ -86,11 +88,10 @@ try:
                             st.caption(label)
                             st.write(f"**{val}**")
 
-            with tab2:
+                with tab2:
                     st.write(f"🌾 Kulture i opsezi za: **{model_instrumenta}**")
                     try:
                         conn = get_conn()
-                        # SQL upit koji smo testirali i koji radi
                         query_k = """
                             SELECT k.kultura, k.opseg_vlage, k.protein 
                             FROM kulture_opsezi k
@@ -101,18 +102,17 @@ try:
                         conn.close()
 
                         if not df_k.empty:
-                            # 1. Čišćenje: Pretvaramo nan/None u prazno polje
                             df_k = df_k.fillna('-')
-                            # 2. Izbacujemo kolonu 'protein' ako je za taj aparat skroz prazna
+                            # Izbacujemo redove koji su naslovi (ako postoje)
+                            df_k = df_k[df_k['kultura'].astype(str).str.lower() != 'kultura']
+                            # Izbacujemo kolonu protein ako je skroz prazna
                             if (df_k['protein'] == '-').all():
                                 df_k = df_k.drop(columns=['protein'])
-                            
-                            # 3. Čist prikaz bez ikakvih brojeva sa strane
                             st.table(df_k)
                         else:
-                            st.info("Nema definisanih kultura za ovaj model u bazi.")
+                            st.info("Nema definisanih kultura za ovaj model.")
                     except Exception as e:
-                        st.error(f"Greška pri učitavanju kultura: {e}")
+                        st.error(f"Greška kod kultura: {e}")
 
                 with tab3:
                     conn = get_conn()
