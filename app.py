@@ -83,12 +83,29 @@ try:
                             st.caption(label)
                             st.write(f"**{val}**")
 
+                # --- SAMO OVAJ DEO ZAMENI U TABU 2 ---
+
                 with tab2:
-                    st.write(f"Definisani opsezi za: `{model_instrumenta}`")
-                    conn = get_conn()
-                    df_k = pd.read_sql("SELECT * FROM kulture_opsezi WHERE naziv_opreme = %s", conn, params=(model_instrumenta,))
-                    conn.close()
-                    st.dataframe(df_k, use_container_width=True, hide_index=True, column_config={"id":None, "naziv_opreme":None}) if not df_k.empty else st.info("Nema kultura.")
+                    st.write(f"Definisani opsezi za model: `{model_instrumenta}`")
+                    try:
+                        conn = get_conn()
+                        # Ovde smo promenili 'naziv_opreme' u 'naziv_proizvodjac' da bi se poklapalo sa tvojom bazom
+                        query_k = "SELECT * FROM kulture_opsezi WHERE naziv_proizvodjac = %s"
+                        df_k = pd.read_sql(query_k, conn, params=(model_instrumenta,))
+                        conn.close()
+                        
+                        if not df_k.empty:
+                            # Čist prikaz bez nepotrebnih tehničkih ID kolona
+                            st.dataframe(df_k, use_container_width=True, hide_index=True, 
+                                         column_config={"id": None, "id_opreme": None, "naziv_proizvodjac": None})
+                        else:
+                            st.info(f"Nema definisanih kultura za model {model_instrumenta}.")
+                    except Exception as e:
+                        st.error(f"Greška u tabeli kulture: {e}")
+                        st.info("Proveri da li se kolona u tabeli 'kulture_opsezi' zove 'naziv_proizvodjac' ili samo 'naziv'.")
+
+# --- OSTATAK KODA OSTAJE ISTI ---
+
 
                 with tab3:
                     conn = get_conn()
