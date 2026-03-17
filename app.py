@@ -79,21 +79,35 @@ try:
                             st.write(f"**{val}**")
 
                 with tab2:
-                    st.write(f"Definisani opsezi za: **{model_instrumenta}**")
-                    try:
-                        conn = get_conn()
-                        # Proveri da li se kolona u tabeli kulture_opsezi tacno zove naziv_proizvodjac
-                        query_k = "SELECT kultura, opseg_vlage, protein FROM kulture_opsezi WHERE naziv_proizvodjac = %s"
-                        df_k = pd.read_sql(query_k, conn, params=(model_instrumenta,))
-                        conn.close()
+    # 1. Provera da li uopšte imamo naziv modela
+    if model_instrumenta and model_instrumenta not in ["None", "nan", "", "-"]:
+        st.write(f"Definisani opsezi za: **{model_instrumenta}**")
+        
+        try:
+            conn = get_conn()
+            # SQL upit
+            query_k = """
+                SELECT kultura, opseg_vlage, protein 
+                FROM kulture_opsezi 
+                WHERE naziv_proizvodjac = %s
+            """
+            df_k = pd.read_sql(query_k, conn, params=(model_instrumenta,))
+            conn.close()
 
-                        if not df_k.empty:
-                            df_k = df_k.dropna(axis=1, how='all')
-                            st.dataframe(df_k, use_container_width=True, hide_index=True)
-                        else:
-                            st.info(f"Nema definisanih opseza vlage/proteina za model: {model_instrumenta}")
-                    except Exception as e:
-                        st.error(f"Greška u Tabu 2: {e}")
+            if not df_k.empty:
+                # Izbacujemo kolone koje su potpuno prazne (npr. protein kod vlagomera)
+                df_k = df_k.dropna(axis=1, how='all')
+                st.dataframe(df_k, use_container_width=True, hide_index=True)
+            else:
+                st.info(f"U tabeli 'kulture_opsezi' nema podataka pod nazivom: {model_instrumenta}")
+                
+        except Exception as e:
+            st.error(f"Greška u Tabu 2: {e}")
+    else:
+        # Poruka ako je u glavnoj tabeli polje 'naziv_proizvodjac' prazno
+        st.warning("⚠️ Ovaj instrument u glavnoj tabeli nema upisan 'Naziv/Model', pa ne mogu da pronađem kulture.")
+        st.info("Rešenje: U Admin panelu dopunite polje 'naziv_proizvodjac' za ovaj inventarski broj.")
+
 
                 with tab3:
                     conn = get_conn()
