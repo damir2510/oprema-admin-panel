@@ -83,26 +83,35 @@ try:
                             st.caption(label)
                             st.write(f"**{val}**")
 
-                # --- SAMO OVAJ DEO ZAMENI U TABU 2 ---
-
-                with tab2:
-                    st.write(f"Definisani opsezi za model: `{model_instrumenta}`")
+                                with tab2:
+                    st.write(f"Definisani opsezi za: `{model_instrumenta}`")
                     try:
                         conn = get_conn()
-                        # Ovde smo promenili 'naziv_opreme' u 'naziv_proizvodjac' da bi se poklapalo sa tvojom bazom
-                        query_k = "SELECT * FROM kulture_opsezi WHERE naziv_proizvodjac = %s"
+                        # Tražimo poklapanje po nazivu_proizvodjac
+                        # Izvlačimo kulturu, opseg vlage i protein
+                        query_k = """
+                            SELECT kultura, opseg_vlage, protein 
+                            FROM kulture_opsezi 
+                            WHERE naziv_proizvodjac = %s
+                        """
                         df_k = pd.read_sql(query_k, conn, params=(model_instrumenta,))
                         conn.close()
-                        
+
                         if not df_k.empty:
-                            # Čist prikaz bez nepotrebnih tehničkih ID kolona
-                            st.dataframe(df_k, use_container_width=True, hide_index=True, 
-                                         column_config={"id": None, "id_opreme": None, "naziv_proizvodjac": None})
+                            # Čistimo prikaz: prikazujemo samo kolone koje imaju bar neki podatak
+                            # (da ne stoji prazna kolona 'protein' ako je vlagomer u pitanju)
+                            df_k = df_k.dropna(axis=1, how='all')
+                            
+                            st.dataframe(
+                                df_k, 
+                                use_container_width=True, 
+                                hide_index=True
+                            )
                         else:
-                            st.info(f"Nema definisanih kultura za model {model_instrumenta}.")
+                            st.info(f"Nema definisanih opseza (vlage/proteina) za model: {model_instrumenta}")
                     except Exception as e:
                         st.error(f"Greška u tabeli kulture: {e}")
-                        st.info("Proveri da li se kolona u tabeli 'kulture_opsezi' zove 'naziv_proizvodjac' ili samo 'naziv'.")
+
 
 # --- OSTATAK KODA OSTAJE ISTI ---
 
