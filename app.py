@@ -3,7 +3,7 @@ import pandas as pd
 import pymysql
 from datetime import datetime
 
-# 1. Konekcija sa bazom
+# 1. Konekcija
 def get_conn():
     return pymysql.connect(
         host="mysql-22f7bcfd-nogalod-c393.d.aivencloud.com",
@@ -15,7 +15,7 @@ def get_conn():
         ssl={'ssl-mode': 'REQUIRED'}
     )
 
-# 2. Dobavljanje glavne tabele
+# 2. Podaci
 def get_working_data():
     conn = get_conn()
     with conn.cursor() as cur:
@@ -24,7 +24,6 @@ def get_working_data():
     conn.close()
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
-# Funkcija za bojenje isteklih datuma u tabelama
 def highlight_expiry(val):
     if pd.isna(val) or str(val) == '-': return ""
     try:
@@ -33,17 +32,14 @@ def highlight_expiry(val):
     except: pass
     return ""
 
-# KONFIGURACIJA STRANICE
 st.set_page_config(page_title="Pregled Opreme", layout="wide")
 st.title("🔍 Radni Panel - Evidencija Opreme")
 
 try:
     df = get_working_data()
-
     if not df.empty:
         df.columns = [c.strip().lower() for c in df.columns]
 
-        # --- GLAVNA PRETRAGA ---
         search_query = st.text_input("🔍 Brza pretraga kroz celu tabelu:", key="main_search")
         if search_query:
             mask = df.astype(str).apply(lambda r: r.str.contains(search_query, case=False).any(), axis=1)
@@ -54,15 +50,14 @@ try:
         st.dataframe(df_display, use_container_width=True, hide_index=True, 
                      column_config={"id": None, "vazi_do": st.column_config.DateColumn("Važi do", format="DD.MM.YYYY")})
 
-        # --- MATIČNI KARTON ---
         st.write("---")
         izabrani_broj = st.sidebar.text_input("🔢 Unesi Inventarski Broj za Matični Karton:", "")
 
         if izabrani_broj:
             rezultat = df[df['inventarni_broj'].astype(str) == str(izabrani_broj)]
-
             if not rezultat.empty:
                 instrument = rezultat.iloc[0]
+                # Ovde uzimamo naziv_proizvodjac za dalju pretragu kultura
                 model_instrumenta = str(instrument.get('naziv_proizvodjac', '')).strip()
                 inv_broj_str = str(izabrani_broj)
 
@@ -83,38 +78,22 @@ try:
                             st.caption(label)
                             st.write(f"**{val}**")
 
-                                with tab2:
-                    st.write(f"Definisani opsezi za: `{model_instrumenta}`")
+                with tab2:
+                    st.write(f"Definisani opsezi za: **{model_instrumenta}**")
                     try:
                         conn = get_conn()
-                        # Tražimo poklapanje po nazivu_proizvodjac
-                        # Izvlačimo kulturu, opseg vlage i protein
-                        query_k = """
-                            SELECT kultura, opseg_vlage, protein 
-                            FROM kulture_opsezi 
-                            WHERE naziv_proizvodjac = %s
-                        """
+                        # Proveri da li se kolona u tabeli kulture_opsezi tacno zove naziv_proizvodjac
+                        query_k = "SELECT kultura, opseg_vlage, protein FROM kulture_opsezi WHERE naziv_proizvodjac = %s"
                         df_k = pd.read_sql(query_k, conn, params=(model_instrumenta,))
                         conn.close()
 
                         if not df_k.empty:
-                            # Čistimo prikaz: prikazujemo samo kolone koje imaju bar neki podatak
-                            # (da ne stoji prazna kolona 'protein' ako je vlagomer u pitanju)
                             df_k = df_k.dropna(axis=1, how='all')
-                            
-                            st.dataframe(
-                                df_k, 
-                                use_container_width=True, 
-                                hide_index=True
-                            )
+                            st.dataframe(df_k, use_container_width=True, hide_index=True)
                         else:
-                            st.info(f"Nema definisanih opseza (vlage/proteina) za model: {model_instrumenta}")
+                            st.info(f"Nema definisanih opseza vlage/proteina za model: {model_instrumenta}")
                     except Exception as e:
-                        st.error(f"Greška u tabeli kulture: {e}")
-
-
-# --- OSTATAK KODA OSTAJE ISTI ---
-
+                        st.error(f"Greška u Tabu 2: {e}")
 
                 with tab3:
                     conn = get_conn()
@@ -137,14 +116,11 @@ try:
                     if not df_b.empty:
                         st.dataframe(df_b.style.applymap(highlight_expiry, subset=['vazi_do']), use_container_width=True, hide_index=True)
                     else: st.info("Nema baždarenja.")
-
             else:
                 st.warning("Instrument nije pronađen.")
         else:
             st.info("Ukucaj inventarski broj u polje levo da otvoriš karton.")
-
     else:
         st.warning("Tabela oprema je prazna.")
-
 except Exception as e:
-    st.error(f"Greška: {e}")
+    st.error(f"Sistemska greška: {e}")
