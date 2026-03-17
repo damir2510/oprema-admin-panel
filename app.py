@@ -90,23 +90,35 @@ try:
                     st.write(f"Kulture i opsezi za: **{model_instrumenta}**")
                     try:
                         conn = get_conn()
-                        # SQL bez procenata (LIKE zamenjen sa !=)
+                        # SQL koji preskače prazne (NULL) redove i naslove
                         query_k = """
                             SELECT k.kultura, k.opseg_vlage, k.protein 
                             FROM kulture_opsezi k
                             JOIN oprema o ON REPLACE(REPLACE(k.naziv_proizvodjac, ' ', ''), '-', '') = REPLACE(REPLACE(o.naziv_proizvodjac, ' ', ''), '-', '')
-                            WHERE o.inventarni_broj = %s 
-                            AND k.kultura != 'kultura' 
-                            AND k.kultura != 'naziv_proizvodjac'
+                            WHERE o.inventarni_broj = %s
+                            AND k.kultura IS NOT NULL 
+                            AND k.kultura != ''
+                            AND k.kultura != 'kultura'
                         """
                         df_k = pd.read_sql(query_k, conn, params=(inv_broj_str,))
                         conn.close()
 
                         if not df_k.empty:
-                            df_k = df_k.replace(['0', 0, 'nan', 'None', '-'], pd.NA).dropna(axis=1, how='all')
-                            st.table(df_k)
+                            # 1. ČIŠĆENJE: Izbacujemo sve što liči na naslove kolona
+                            for col in df_k.columns:
+                                df_k = df_k[df_k[col].astype(str).str.lower().str.strip() != col.lower()]
+                            
+                            # 2. TRANSFORMACIJA: Pretvaramo nan/None u prazno i brišemo skroz prazne kolone
+                            df_k = df_k.replace(['nan', 'None', '-', '0', '0.0'], pd.NA).dropna(axis=1, how='all')
+                            
+                            if not df_k.empty:
+                                # Prikazujemo čistu tabelu bez onog indeksa 0, 1, 2...
+                                st.table(df_k) 
+                            else:
+                                st.info("Nakon čišćenja nema validnih podataka o kulturama.")
                         else:
-                            st.info("Nisu pronađene kulture.")
+                            st.info("Baza nije pronašla povezane kulture (proverite podudaranje naziva modela).")
+                            
                     except Exception as e:
                         st.error(f"Greška u Tabu 2: {e}")
 
