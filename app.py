@@ -24,11 +24,11 @@ def get_working_data():
     conn.close()
     df = pd.DataFrame(rows)
     if not df.empty:
-        # Čistimo nazive kolona (mala slova i bez razmaka)
+        # Standardizacija naziva kolona (mala slova)
         df.columns = [c.strip().lower() for c in df.columns]
     return df
 
-# Funkcija za bojenje isteklih datuma
+# Funkcija za bojenje isteklih datuma (crveno ako je prošao rok)
 def highlight_expiry(val):
     if pd.isna(val) or str(val) in ['-', '', 'None', 'nan', '0']: return ""
     try:
@@ -48,24 +48,31 @@ try:
         if 'inventarni_broj' in df.columns:
             df = df[df['inventarni_broj'].astype(str).str.lower().str.strip() != 'inventarni_broj']
 
-        # --- GLAVNA PRETRAGA ---
-        search_query = st.text_input("🔍 Brza pretraga kroz celu tabelu:", key="main_search")
+        # --- SEKCIJA 1: GLAVNA TABELA I PRETRAGA ---
+        search_query = st.text_input("🔍 Brza pretraga kroz celu tabelu (ukucaj bilo šta):", key="main_search")
         if search_query:
             mask = df.astype(str).apply(lambda r: r.str.contains(search_query, case=False).any(), axis=1)
             df_display = df[mask]
         else:
             df_display = df
 
-        st.dataframe(df_display, use_container_width=True, hide_index=True, 
-                     column_config={"id": None, "vazi_do": st.column_config.DateColumn("Važi do", format="DD.MM.YYYY")})
+        st.dataframe(
+            df_display, 
+            use_container_width=True, 
+            hide_index=True, 
+            column_config={
+                "id": None, 
+                "vazi_do": st.column_config.DateColumn("Važi do", format="DD.MM.YYYY")
+            }
+        )
 
         st.write("---")
         
-        # --- MATIČNI KARTON (SIDEBAR) ---
-        izabrani_broj = st.sidebar.text_input("🔢 Unesi Inventarski Broj:", "")
+        # --- SEKCIJA 2: MATIČNI KARTON (UNOS BROJA U SIDEBAR-U) ---
+        izabrani_broj = st.sidebar.text_input("🔢 Unesi Inventarski Broj za detalje:", "")
 
         if izabrani_broj:
-            # Tražimo podatke za konkretan instrument
+            # Tražimo podatke za taj specifičan instrument
             rezultat = df[df['inventarni_broj'].astype(str) == str(izabrani_broj)]
             
             if not rezultat.empty:
@@ -75,10 +82,10 @@ try:
 
                 st.subheader(f"📄 Matični Karton br: {izabrani_broj}")
                 
-                # DEFINICIJA TABOVA (Svi moraju biti unutar 'if ne rezultat.empty' bloka)
+                # DEFINICIJA TABOVA
                 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Osnovni podaci", "🌾 Kulture", "🛠️ Servis", "📏 Etaloniranje", "⚖️ Baždarenje"])
 
-                # --- TAB 1: OSNOVNI PODACI ---
+                # --- TAB 1: TEHNIČKE KARAKTERISTIKE ---
                 with tab1:
                     polja = {
                         "Vrsta": "vrsta_opreme", "Proizvođač": "proizvodjac", "Model": "naziv_proizvodjac",
@@ -86,44 +93,51 @@ try:
                         "Opseg": "opseg_merenja", "Klasa": "klasa_tacnosti", "Preciznost": "preciznost", "Podeok": "podeok"
                     }
                     popunjena = [(l, instrument[c]) for l, c in polja.items() if c in instrument and pd.notna(instrument[c]) and str(instrument[c]).strip() not in ["", "-", "nan", "None", "0"]]
-                    cols = st.columns(4)
-                    for i, (label, val) in enumerate(popunjena):
-                        with cols[i % 4]:
-                            st.caption(label)
-                            st.write(f"**{val}**")
+                    
+                    if popunjena:
+                        cols = st.columns(4)
+                        for i, (label, val) in enumerate(popunjena):
+                            with cols[i % 4]:
+                                st.caption(label)
+                                st.write(f"**{val}**")
+                    else:
+                        st.info("Nema unetih tehničkih podataka.")
 
-                # --- TAB 2: KULTURE (POVEZIVANJE I ČIŠĆENJE) ---
+                # --- TAB 2: KULTURE (DIJAGNOSTIČKA PRETRAGA) ---
                 with tab2:
-                    st.write(f"Kulture i opsezi za: **{model_iz_opreme}**")
+                    st.write(f"Tražim kulture za model: **'{model_iz_opreme}'**")
                     try:
                         conn = get_conn()
-                        # SQL JOIN preko očišćenih naziva
+                        # "Nuklearni" SQL upit: briše razmake i pretvara u mala slova u bazi tokom pretrage
                         query_k = """
-                            SELECT k.kultura, k.opseg_vlage, k.protein 
-                            FROM kulture_opsezi k
-                            JOIN oprema o ON TRIM(k.naziv_proizvodjac) = TRIM(o.naziv_proizvodjac)
-                            WHERE o.inventarni_broj = %s
+                            SELECT kultura, opseg_vlage, protein, naziv_proizvodjac 
+                            FROM kulture_opsezi 
+                            WHERE LOWER(REPLACE(naziv_proizvodjac, ' ', '')) = LOWER(REPLACE(%s, ' ', ''))
                         """
-                        df_k = pd.read_sql(query_k, conn, params=(inv_broj_str,))
+                        df_k = pd.read_sql(query_k, conn, params=(model_iz_opreme,))
                         conn.close()
 
                         if not df_k.empty:
-                            # ČIŠĆENJE: Izbacujemo redove gde je kultura = "kultura" (naslovi iz uvoza)
+                            # Čišćenje preostalih naslova iz Excela
                             df_k = df_k[df_k['kultura'].astype(str).str.lower().str.strip() != 'kultura']
                             
-                            # TRANSFORMACIJA: Popunjavamo praznine i brišemo skroz prazne kolone
-                            df_k = df_k.replace(['nan', 'None', '0', '0.0'], pd.NA).dropna(axis=1, how='all').fillna('-')
-                            
                             if not df_k.empty:
-                                st.dataframe(df_k, use_container_width=True, hide_index=True)
+                                # Prikazujemo samo bitne kolone radniku
+                                st.dataframe(df_k[['kultura', 'opseg_vlage', 'protein']].fillna('-'), use_container_width=True, hide_index=True)
                             else:
-                                st.error("Svi podaci za ovaj model u bazi su naslovi redova.")
+                                st.error("Pronađen je red, ali je obrisan jer je naslov ('kultura').")
                         else:
-                            st.info("Nema definisanih kultura za ovaj model.")
+                            st.warning(f"Baza ne pronalazi model '{model_iz_opreme}' u tabeli kultura.")
+                            
+                            # POMOĆ ZA TEBE: Ispisujemo šta uopšte ima u bazi da vidiš razliku
+                            conn = get_conn()
+                            dostupni = pd.read_sql("SELECT DISTINCT naziv_proizvodjac FROM kulture_opsezi", conn)
+                            conn.close()
+                            st.info("U tabeli kultura piše ovako: " + ", ".join(dostupni['naziv_proizvodjac'].astype(str).tolist()))
                     except Exception as e:
                         st.error(f"Greška u Tabu 2: {e}")
 
-                # --- TAB 3: SERVIS ---
+                # --- TAB 3: ISTORIJA SERVISA ---
                 with tab3:
                     conn = get_conn()
                     df_s = pd.read_sql("SELECT datum_servisa, broj_zapisnika, opis_intervencije, izvrsio_servis FROM istorija_servisa WHERE inventarni_broj = %s ORDER BY datum_servisa DESC", conn, params=(inv_broj_str,))
@@ -131,7 +145,7 @@ try:
                     if not df_s.empty:
                         df_s = df_s[df_s['datum_servisa'].astype(str).str.lower().str.strip() != 'datum_servisa']
                         st.dataframe(df_s, use_container_width=True, hide_index=True)
-                    else: st.write("Nema servisa.")
+                    else: st.write("Nema zabeleženih servisa.")
 
                 # --- TAB 4: ETALONIRANJE ---
                 with tab4:
@@ -141,7 +155,7 @@ try:
                     if not df_e.empty:
                         df_e = df_e[df_e['datum_etaloniranja'].astype(str).str.lower().str.strip() != 'datum_etaloniranja']
                         st.dataframe(df_e.style.map(highlight_expiry, subset=['vazi_do']), use_container_width=True, hide_index=True)
-                    else: st.info("Nema etaloniranja.")
+                    else: st.info("Nema podataka o etaloniranju.")
 
                 # --- TAB 5: BAŽDARENJE ---
                 with tab5:
@@ -151,12 +165,16 @@ try:
                     if not df_b.empty:
                         df_b = df_b[df_b['datum_bazdarenja'].astype(str).str.lower().str.strip() != 'datum_bazdarenja']
                         st.dataframe(df_b.style.map(highlight_expiry, subset=['vazi_do']), use_container_width=True, hide_index=True)
-                    else: st.info("Nema baždarenja.")
+                    else: st.info("Nema podataka o baždarenju.")
+
             else:
-                st.warning("Instrument nije pronađen.")
+                st.warning(f"Instrument sa inventarnim brojem '{izabrani_broj}' nije pronađen.")
         else:
-            st.info("👈 Ukucaj inventarski broj u polje levo za detaljan karton.")
+            st.info("👈 Ukucajte inventarski broj u polje sa leve strane da vidite Matični Karton.")
     else:
-        st.warning("Tabela oprema je prazna.")
+        st.warning("Tabela 'oprema' u bazi podataka je prazna.")
 except Exception as e:
     st.error(f"Sistemska greška: {e}")
+
+st.sidebar.markdown("---")
+st.sidebar.caption("Sistem za praćenje mernih instrumenata v2.1")
