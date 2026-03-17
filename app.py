@@ -86,10 +86,11 @@ try:
                             st.caption(label)
                             st.write(f"**{val}**")
 
-                with tab2:
-                    st.write(f"Kulture i opsezi za: **{model_instrumenta}**")
+            with tab2:
+                    st.write(f"🌾 Kulture i opsezi za: **{model_instrumenta}**")
                     try:
                         conn = get_conn()
+                        # SQL upit koji smo testirali i koji radi
                         query_k = """
                             SELECT k.kultura, k.opseg_vlage, k.protein 
                             FROM kulture_opsezi k
@@ -100,16 +101,18 @@ try:
                         conn.close()
 
                         if not df_k.empty:
-                            st.write("Sirovi podaci iz baze (provera):")
-                            st.dataframe(df_k) 
+                            # 1. Čišćenje: Pretvaramo nan/None u prazno polje
+                            df_k = df_k.fillna('-')
+                            # 2. Izbacujemo kolonu 'protein' ako je za taj aparat skroz prazna
+                            if (df_k['protein'] == '-').all():
+                                df_k = df_k.drop(columns=['protein'])
                             
-                            df_clean = df_k.dropna(axis=1, how='all')
-                            if not df_clean.empty:
-                                st.table(df_clean)
+                            # 3. Čist prikaz bez ikakvih brojeva sa strane
+                            st.table(df_k)
                         else:
-                            st.info(f"Baza nije vratila ništa za model: {model_instrumenta}")
+                            st.info("Nema definisanih kultura za ovaj model u bazi.")
                     except Exception as e:
-                        st.error(f"Greška u Tabu 2: {e}")
+                        st.error(f"Greška pri učitavanju kultura: {e}")
 
                 with tab3:
                     conn = get_conn()
