@@ -29,13 +29,24 @@ def get_city_from_gps(coords):
     if c in ["nan", "none", "", "0"]: return "-"
     return "Ostalo"
 
-# 3. STILIZACIJA (Boje)
+# 3. POPRAVLJENA STILIZACIJA (Otporna na NaT/NaN greške)
 def apply_styling(df, should_highlight):
     if not should_highlight or 'vazi_do' not in df.columns:
         return df
-    return df.style.applymap(lambda val: "background-color: #ff4b4b; color: white" 
-                            if pd.to_datetime(val, errors='coerce') and pd.to_datetime(val).date() < datetime.now().date() 
-                            else "", subset=['vazi_do'])
+    
+    def highlight_logic(val):
+        if pd.isna(val) or val == "" or val == "-":
+            return ""
+        try:
+            # Pretvaranje u datum radi sigurnog poređenja
+            check_date = pd.to_datetime(val).date()
+            if check_date < datetime.now().date():
+                return "background-color: #ff4b4b; color: white"
+        except:
+            pass
+        return ""
+
+    return df.style.applymap(highlight_logic, subset=['vazi_do'])
 
 st.set_page_config(page_title="Radni Panel", layout="wide")
 st.title("🔍 Evidencija Opreme")
@@ -54,15 +65,16 @@ try:
 
         # LOGIKA ZA LOKACIJU I DATUME
         df['lokacija'] = df['gps_koordinate'].apply(get_city_from_gps)
+        
+        # Čišćenje datuma - pretvaramo u date format, nevalidne u NaT
         for col in ['vazi_do', 'datum_bazdarenja', 'datum_kontrole']:
-            if col in df.columns: df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
 
         # REORGANIZACIJA KOLONA ZA GLAVNI EKRAN
-        # Definisanje željenog redosleda (ostale kolone će se automatski dodati između)
         fiksne_prve = ['sektor', 'vrsta_opreme', 'proizvodjac', 'naziv_proizvodjac', 'lokacija']
         fiksne_zadnje = ['putanja_folder', 'zadnja_lokacija', 'status', 'napomena']
         
-        # Kolone za potpuno izbacivanje
         izbaci = ['inventarni_broj', 'stampac', 'gps_koordinate', 'ima_mk', 'period_provere', 
                   'godina_proizvodnje', 'upotreba_od', 'rel_vlaznost', 'opseg_merenja', 
                   'radna_temperatura', 'klasa_tacnosti', 'preciznost', 'podeok']
@@ -72,7 +84,7 @@ try:
         
         main_display = df[[c for c in novi_poredak if c in df.columns]]
 
-        # PRIKAZ TABELE
+        # PRIKAZ TABELE SA NOVOM STILIZACIJOM
         st.dataframe(apply_styling(main_display, show_colors), use_container_width=True, hide_index=True)
         st.write("---")
 
@@ -96,7 +108,7 @@ try:
                     with c2:
                         st.markdown("**Tehnički podaci:**")
                         st.info(f"Opseg: {ins.get('opseg_merenja', '-')}")
-                        # Uslovno prikazivanje za vlagomere/vage
+                        # Pametno sakrivanje praznih polja
                         if str(ins.get('klasa_tacnosti', '')).strip() not in ["", "None", "nan", "-", "0"]:
                             st.info(f"Klasa: {ins.get('klasa_tacnosti')}")
                         if str(ins.get('preciznost', '')).strip() not in ["", "None", "nan", "-", "0"]:
@@ -109,7 +121,6 @@ try:
                         st.info(f"Rel. Vlažnost: {ins.get('rel_vlaznost', '-')}")
                         st.info(f"Godina proizv: {ins.get('godina_proizvodnje', '-')}")
 
-                # TABOVI BEZ GREŠKE
                 with t2:
                     m_name = str(ins.get('naziv_proizvodjac', '')).strip()
                     df_k = run_query("SELECT kultura, opseg_vlage, protein FROM kulture_opsezi WHERE LOWER(naziv_proizvodjac) LIKE %s", (f"%{m_name.lower()}%",))
