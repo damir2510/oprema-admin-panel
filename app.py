@@ -21,22 +21,21 @@ def run_query(query, params=None):
     finally:
         if 'conn' in locals(): conn.close()
 
-# 2. STILIZACIJA (Boje)
+# 2. POMOĆNA FUNKCIJA ZA PROVERU PODATAKA
+def ima_podatak(val):
+    return str(val).strip() not in ["", "None", "nan", "-", "0", "NoneType"]
+
+# 3. STILIZACIJA (Boje)
 def apply_styling(df, should_highlight):
     if not should_highlight or 'vazi_do' not in df.columns:
         return df
-    
     def highlight_logic(val):
-        if pd.isna(val) or val == "" or val == "-":
-            return ""
+        if pd.isna(val) or val == "" or val == "-": return ""
         try:
-            check_date = pd.to_datetime(val).date()
-            if check_date < datetime.now().date():
+            if pd.to_datetime(val).date() < datetime.now().date():
                 return "background-color: #ff4b4b; color: white"
-        except:
-            pass
+        except: pass
         return ""
-
     return df.style.applymap(highlight_logic, subset=['vazi_do'])
 
 st.set_page_config(page_title="Radni Panel", layout="wide")
@@ -59,67 +58,65 @@ try:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
 
-        # REORGANIZACIJA KOLONA (Bez lokacije)
+        # REORGANIZACIJA KOLONA (Bez ID i Lokacije)
         fiksne_prve = ['sektor', 'vrsta_opreme', 'proizvodjac', 'naziv_proizvodjac']
         fiksne_zadnje = ['putanja_folder', 'zadnja_lokacija', 'status', 'napomena']
         
-        izbaci = ['inventarni_broj', 'stampac', 'gps_koordinate', 'ima_mk', 'period_provere', 
+        izbaci = ['id', 'inventarni_broj', 'stampac', 'gps_koordinate', 'ima_mk', 'period_provere', 
                   'godina_proizvodnje', 'upotreba_od', 'rel_vlaznost', 'opseg_merenja', 
-                  'radna_temperatura', 'klasa_tacnosti', 'preciznost', 'podeok']
+                  'radna_temperatura', 'klasa_tacnosti', 'preciznost', 'podeok', 'lokacija']
         
         preostale = [c for c in df.columns if c not in fiksne_prve and c not in fiksne_zadnje and c not in izbaci]
         novi_poredak = fiksne_prve + preostale + fiksne_zadnje
         
         main_display = df[[c for c in novi_poredak if c in df.columns]]
 
-        # PRIKAZ TABELE
+        # PRIKAZ GLAVNE TABELE
         st.dataframe(apply_styling(main_display, show_colors), use_container_width=True, hide_index=True)
         st.write("---")
 
         # MATIČNI KARTON
         if izabrani_broj:
-            # Pronalaženje reda (koristimo .iloc[0] da pretvorimo u Series koji ima .get metodu)
             rez = df[df['inventarni_broj'].astype(str).str.strip() == izabrani_broj]
-            
             if not rez.empty:
-                ins = rez.iloc[0]  # ISPRAVLJENO: Ovde je bila greška
+                ins = rez.iloc[0]
                 st.subheader(f"📄 Karton: {ins.get('naziv_proizvodjac', '')} | {ins.get('vrsta_opreme', '')}")
                 
                 t1, t2, t3, t4, t5 = st.tabs(["📋 Osnovno", "🌾 Kulture", "🛠 Servis", "📏 Etalon", "⚖ Baždarenje"])
 
                 with t1:
-                    c1, c2, c3 = st.columns(3)
-                    with c1:
-                        st.markdown("**Identifikacija:**")
-                        st.info(f"Proizvođač: {ins.get('proizvodjac', '-')}")
-                        st.info(f"Model: {ins.get('naziv_proizvodjac', '-')}")
-                        st.info(f"Vrsta: {ins.get('vrsta_opreme', '-')}")
-                        st.info(f"Serijski br: {ins.get('seriski_broj', '-')}")
-                    with c2:
-                        st.markdown("**Tehnički podaci:**")
-                        st.info(f"Opseg: {ins.get('opseg_merenja', '-')}")
-                        
-                        # Sakrivanje praznih polja
-                        def check(val): return str(val).strip() not in ["", "None", "nan", "-", "0"]
-                        
-                        if check(ins.get('klasa_tacnosti')):
-                            st.info(f"Klasa: {ins.get('klasa_tacnosti')}")
-                        if check(ins.get('preciznost')):
-                            st.info(f"Preciznost (d): {ins.get('preciznost')}")
-                        if check(ins.get('podeok')):
-                            st.info(f"Overeni podeok (e): {ins.get('podeok')}")
-                    with c3:
-                        st.markdown("**Uslovi:**")
-                        st.info(f"Radna Temp: {ins.get('radna_temperatura', '-')}")
-                        st.info(f"Rel. Vlažnost: {ins.get('rel_vlaznost', '-')}")
-                        st.info(f"Godina proizv: {ins.get('godina_proizvodnje', '-')}")
+                    # Dinamičko pakovanje podataka u 4 kolone radi lepšeg izgleda
+                    podaci_za_prikaz = []
+                    
+                    # Definišemo listu labela i ključeva koje želimo da prikažemo
+                    svi_potencijalni = [
+                        ("Proizvođač", "proizvodjac"), ("Model", "naziv_proizvodjac"),
+                        ("Vrsta", "vrsta_opreme"), ("Serijski br.", "seriski_broj"),
+                        ("Opseg merenja", "opseg_merenja"), ("Klasa tačnosti", "klasa_tacnosti"),
+                        ("Preciznost (d)", "preciznost"), ("Overeni podeok (e)", "podeok"),
+                        ("Radna Temperatura", "radna_temperatura"), ("Rel. Vlažnost", "rel_vlaznost"),
+                        ("Godina proizvodnje", "godina_proizvodnje"), ("U upotrebi od", "upotreba_od")
+                    ]
+
+                    # Filtriramo samo ono što postoji u bazi
+                    for label, key in svi_potencijalni:
+                        val = ins.get(key)
+                        if ima_podatak(val):
+                            podaci_za_prikaz.append((label, val))
+
+                    # Prikazujemo u gridu (4 kolone)
+                    cols = st.columns(4)
+                    for i, (label, val) in enumerate(podaci_za_prikaz):
+                        with cols[i % 4]:
+                            st.write(f"**{label}**")
+                            st.info(val)
 
                 # OSTALI TABOVI
                 with t2:
                     m_name = str(ins.get('naziv_proizvodjac', '')).strip()
                     df_k = run_query("SELECT kultura, opseg_vlage, protein FROM kulture_opsezi WHERE LOWER(naziv_proizvodjac) LIKE %s", (f"%{m_name.lower()}%",))
                     if not df_k.empty: st.table(df_k.fillna("-"))
-                    else: st.warning("Nema podataka.")
+                    else: st.warning("Nema podataka o kulturama.")
                 with t3:
                     df_s = run_query("SELECT datum_servisa, broj_zapisnika, opis_intervencije FROM istorija_servisa WHERE inventarni_broj = %s", (izabrani_broj,))
                     if not df_s.empty: st.dataframe(df_s, use_container_width=True, hide_index=True)
