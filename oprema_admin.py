@@ -3,6 +3,9 @@ import pandas as pd
 import pymysql
 import io
 
+if st.sidebar.button("⬅️ Nazad na Pregled", use_container_width=True):
+    st.switch_page("pages/oprema.py")
+
 # 1. KONEKCIJA SA BAZOM
 def get_conn():
     return pymysql.connect(
