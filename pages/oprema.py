@@ -1,24 +1,27 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-# Uvozimo funkciju koju smo napravili u db_utils.py
+# Uvozimo funkciju iz db_utils.py
 from db_utils import run_query 
 
-# --- NAVIGACIJA ---
+# --- DEFINICIJA STRANICA ZA NAVIGACIJU (Da switch_page radi unutar navigation sistema) ---
+p_mapa = st.Page("pages/mapa_opreme.py")
+p_admin = st.Page("pages/oprema_admin.py")
+
+# --- NAVIGACIJA SIDEBAR ---
 st.sidebar.header("🚀 Navigacija")
 if st.sidebar.button("🗺️ Mapa opreme", use_container_width=True):
-    st.switch_page("pages/mapa_opreme.py")
+    st.switch_page(p_mapa)
 
 if st.sidebar.button("🛠️ Admin Panel", use_container_width=True):
-    st.switch_page("pages/oprema_admin.py")
+    st.switch_page(p_admin)
 
 st.sidebar.markdown("---")
 
-# 1. POMOĆNA FUNKCIJA ZA PROVERU PODATAKA
+# 1. POMOĆNE FUNKCIJE
 def ima_podatak(val):
     return str(val).strip() not in ["", "None", "nan", "-", "0", "NoneType"]
 
-# 2. STILIZACIJA (Boje)
 def apply_styling(df, should_highlight):
     if not should_highlight or 'vazi_do' not in df.columns:
         return df
@@ -31,20 +34,20 @@ def apply_styling(df, should_highlight):
         return ""
     return df.style.applymap(highlight_logic, subset=['vazi_do'])
 
+# --- GLAVNI SADRŽAJ ---
 st.title("🔍 Evidencija Opreme")
 
-# SIDEBAR KONTROLE
 st.sidebar.header("⚙️ Kontrole")
 show_colors = st.sidebar.toggle("Prikaži istekle (boje)", value=True)
-izabrani_broj = st.sidebar.text_input("🔢 Inventarski Broj:", "").strip()
+izabrani_broj = st.sidebar.text_input("🔢 Inventarski Broj (za karton):", "").strip()
 
 try:
-    # Korišćenje run_query iz db_utils
     df_raw = run_query("SELECT * FROM oprema")
     
     if not df_raw.empty:
         df = df_raw.copy()
         df.columns = [c.strip().lower() for c in df.columns]
+        # Filtriranje zaglavlja ako je slučajno u bazi
         df = df[df['inventarni_broj'].astype(str).str.lower() != 'inventarni_broj']
 
         # Čišćenje datuma
@@ -63,11 +66,11 @@ try:
         novi_poredak = fiksne_prve + preostale + fiksne_zadnje
         main_display = df[[c for c in novi_poredak if c in df.columns]]
 
-        # PRIKAZ GLAVNE TABELE
+        # Prikaz glavne tabele
         st.dataframe(apply_styling(main_display, show_colors), use_container_width=True, hide_index=True)
         st.write("---")
 
-        # MATIČNI KARTON
+        # --- MATIČNI KARTON ---
         if izabrani_broj:
             rez = df[df['inventarni_broj'].astype(str).str.strip() == izabrani_broj]
             if not rez.empty:
@@ -83,7 +86,7 @@ try:
                         ("Opseg merenja", "opseg_merenja"), ("Klasa tačnosti", "klasa_tacnosti"),
                         ("Preciznost (d)", "preciznost"), ("Overeni podeok (e)", "podeok"),
                         ("Radna Temperatura", "radna_temperatura"), ("Rel. Vlažnost", "rel_vlaznost"),
-                        ("Godina proizvodnje", "godina_proizvodnje"), ("U upotrebi od", "upotreba_od")
+                        ("U upotrebi od", "upotreba_od")
                     ]
                     podaci_za_prikaz = [(l, ins.get(k)) for l, k in svi_potencijalni if ima_podatak(ins.get(k))]
                     
@@ -96,19 +99,31 @@ try:
                 with t2:
                     m_name = str(ins.get('naziv_proizvodjac', '')).strip()
                     df_k = run_query("SELECT kultura, opseg_vlage, protein FROM kulture_opsezi WHERE LOWER(naziv_proizvodjac) LIKE %s", (f"%{m_name.lower()}%",))
-                    st.table(df_k.fillna("-")) if not df_k.empty else st.warning("Nema podataka o kulturama.")
+                    if not df_k.empty:
+                        st.table(df_k.fillna("-"))
+                    else:
+                        st.warning("Nema podataka o kulturama.")
                 
                 with t3:
                     df_s = run_query("SELECT datum_servisa, broj_zapisnika, opis_intervencije FROM istorija_servisa WHERE inventarni_broj = %s", (izabrani_broj,))
-                    st.dataframe(df_s, use_container_width=True, hide_index=True) if not df_s.empty else st.info("Nema servisa.")
+                    if not df_s.empty:
+                        st.dataframe(df_s, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Nema servisa.")
                 
                 with t4:
                     df_e = run_query("SELECT datum_etaloniranja, broj_sertifikata, vazi_do FROM istorija_etaloniranja WHERE inventarni_broj = %s", (izabrani_broj,))
-                    st.dataframe(df_e, use_container_width=True, hide_index=True) if not df_e.empty else st.info("Nema etaloniranja.")
+                    if not df_e.empty:
+                        st.dataframe(df_e, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Nema etaloniranja.")
                 
                 with t5:
                     df_b = run_query("SELECT datum_bazdarenja, broj_uverenja, vazi_do FROM istorija_bazdarenja WHERE inventarni_broj = %s", (izabrani_broj,))
-                    st.dataframe(df_b, use_container_width=True, hide_index=True) if not df_b.empty else st.info("Nema baždarenja.")
+                    if not df_b.empty:
+                        st.dataframe(df_b, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Nema baždarenja.")
             else:
                 st.sidebar.error("Instrument nije pronađen!")
     else:
