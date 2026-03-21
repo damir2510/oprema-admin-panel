@@ -4,30 +4,14 @@ import pymysql
 from datetime import datetime
 import io
 
-# --- 1. NAVIGACIJA (Dugmići za brzi prelaz) ---
+# --- 1. NAVIGACIJA ---
 st.sidebar.header("🚀 Navigacija")
 if st.sidebar.button("📋 Pregled Opreme", use_container_width=True):
     st.switch_page("pages/oprema.py")
 if st.sidebar.button("📍 Mapa opreme", use_container_width=True):
     st.switch_page("pages/mapa_opreme.py")
-st.sidebar.markdown("---")
 
-# --- 2. LOGIN LOGIKA ---
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-
-login_placeholder = st.empty()
-if not st.session_state.authenticated:
-    with login_placeholder.container():
-        st.subheader("🔐 Admin Pristup")
-        password = st.text_input("Lozinka:", type="password")
-        if password == "bvadmin2024": # <--- POSTAVI LOZINKU
-            st.session_state.authenticated = True
-            login_placeholder.empty()
-            st.rerun()
-        st.stop()
-
-# --- 3. KONEKCIJA ---
+# --- 2. KONEKCIJA ---
 def get_conn():
     return pymysql.connect(
         host="mysql-22f7bcfd-nogalod-c393.d.aivencloud.com",
@@ -38,83 +22,78 @@ def get_conn():
         autocommit=True
     )
 
-# --- 4. GPS LOGIKA ---
-def get_city_from_gps(coords):
-    if pd.isna(coords) or str(coords).strip() in ["", "0", "-", "nan"]:
-        return "-"
-    try:
-        parts = str(coords).replace(',', ' ').split()
-        lat, lon = float(parts[0]), float(parts[1])
-        if 45.70 <= lat <= 45.85 and 19.00 <= lon <= 19.25: return "Sombor"
-        if 45.15 <= lat <= 45.35 and 19.70 <= lon <= 19.95: return "Novi Sad"
-        return "Nepoznato"
-    except: return "-"
+st.title("🛠 Admin Panel - Upravljanje Bazama")
 
-# --- 5. GLAVNI PANEL ---
-st.title("🛠 Admin Panel - Upravljanje Opremom")
+# --- 3. IZBOR TABELE (Vraćeno biranje) ---
+tabela_za_rad = st.selectbox("Izaberi tabelu za rad:", 
+                            ["oprema", "istorija_servisa", "istorija_etaloniranja", "istorija_bazdarenja", "kulture_opsezi"])
 
 try:
     conn = get_conn()
-    df_raw = pd.read_sql("SELECT * FROM oprema", conn)
+    df_raw = pd.read_sql(f"SELECT * FROM `{tabela_za_rad}`", conn)
     
     if not df_raw.empty:
         df = df_raw.copy()
-        df.columns = [c.strip().lower() for c in df.columns]
         
-        # BRISANJE DUPLIH NASLOVA (Ako u redovima piše 'sektor', 'vrsta' itd)
-        df = df[df['sektor'].astype(str).str.lower() != 'sektor']
+        # Čišćenje: Brišemo red samo ako je identičan nazivu bilo koje kolone
+        # Ovo sprečava "praznu tabelu" ako su podaci ispravni
+        for col in df.columns:
+            df = df[df[col].astype(str).str.lower() != str(col).lower()]
 
-        # GPS u Grad
-        if 'gps_koordinate' in df.columns:
-            df['zadnja_lokacija'] = df['gps_koordinate'].apply(get_city_from_gps)
+        tab_edit, tab_io = st.tabs(["📝 Brza Izmena", "📥 Import/Export"])
 
-        # Datumi
-        for col in ['vazi_do', 'datum_bazdarenja', 'datum_kontrole']:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
+        with tab_edit:
+            st.subheader(f"Uređivanje: {tabela_za_rad}")
+            
+            # Dinamički prikaz: Sve kolone su vidljive i tabela je ŠIROKA
+            edited_df = st.data_editor(
+                df,
+                use_container_width=True, 
+                hide_index=True,
+                column_config={"id": None}, # Sakrivamo ID, ali je tu za UPDATE
+                key=f"editor_{tabela_za_rad}",
+                height=500
+            )
 
-        # Poredak kolona
-        prve = ['sektor', 'vrsta_opreme', 'proizvodjac', 'naziv_proizvodjac', 'zadnja_lokacija']
-        zadnje = ['putanja_folder', 'status', 'napomena']
-        izbaci = ['id', 'gps_koordinate', 'stampac', 'ima_mk', 'period_provere', 'godina_proizvodnje', 
-                  'upotreba_od', 'rel_vlaznost', 'opseg_merenja', 'radna_temperatura', 
-                  'klasa_tacnosti', 'preciznost', 'podeok']
-        
-        preostale = [c for c in df.columns if c not in prve and c not in zadnje and c not in izbaci]
-        novi_poredak = ['id'] + prve + preostale + zadnje
+            if st.button("💾 SAČUVAJ IZMENE U BAZU", type="primary"):
+                with conn.cursor() as cursor:
+                    kolone = [c for c in edited_df.columns if c != 'id']
+                    set_clause = ", ".join([f"`{c}`=%s" for c in kolone])
+                    sql = f"UPDATE `{tabela_za_rad}` SET {set_clause} WHERE id=%s"
+                    
+                    for _, row in edited_df.iterrows():
+                        # Priprema vrednosti (None za prazna polja)
+                        values = [None if pd.isna(row[c]) else row[c] for c in kolone] + [row['id']]
+                        cursor.execute(sql, values)
+                st.success("Uspešno sačuvano!")
+                st.rerun()
 
-        # ŠIROKI PRIKAZ TABELE
-        st.subheader("📝 Brza izmena")
-        edited_df = st.data_editor(
-            df[novi_poredak],
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "id": None, 
-                "status": st.column_config.SelectboxColumn("Status", options=["U radu", "Van upotrebe", "Na servisu", "Otpisano"]),
-                "vazi_do": st.column_config.DateColumn("Važi do", format="DD.MM.YYYY"),
-                "putanja_folder": st.column_config.LinkColumn("Link")
-            }
-        )
-
-        if st.button("💾 SAČUVAJ SVE IZMENE", type="primary", use_container_width=True):
-            with conn.cursor() as cursor:
-                for _, row in edited_df.iterrows():
-                    sql = """UPDATE oprema SET sektor=%s, vrsta_opreme=%s, proizvodjac=%s, 
-                             naziv_proizvodjac=%s, status=%s, napomena=%s, vazi_do=%s, zadnja_lokacija=%s WHERE id=%s"""
-                    cursor.execute(sql, (row.get('sektor'), row.get('vrsta_opreme'), row.get('proizvodjac'),
-                                       row.get('naziv_proizvodjac'), row.get('status'), row.get('napomena'),
-                                       row.get('vazi_do'), row.get('zadnja_lokacija'), row.get('id')))
-            st.success("✅ Uspešno sačuvano!")
-            st.rerun()
+        with tab_io:
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("### 📥 Export")
+                output = io.BytesIO()
+                df.to_excel(output, index=False, engine='openpyxl')
+                st.download_button(f"Preuzmi {tabela_za_rad}.xlsx", output.getvalue(), f"{tabela_za_rad}.xlsx", use_container_width=True)
+            
+            with col2:
+                st.write("### 📤 Import")
+                uploaded_file = st.file_uploader("Otpremi Excel", type=["xlsx"])
+                if uploaded_file:
+                    df_new = pd.read_excel(uploaded_file, engine='openpyxl')
+                    if st.button("🚀 PREGAZI TABELU NOVIM PODACIMA"):
+                        with conn.cursor() as cursor:
+                            cursor.execute(f"TRUNCATE TABLE `{tabela_za_rad}`")
+                            cols = ", ".join([f"`{c}`" for c in df_new.columns])
+                            placeholders = ", ".join(["%s"] * len(df_new.columns))
+                            sql_ins = f"INSERT INTO `{tabela_za_rad}` ({cols}) VALUES ({placeholders})"
+                            for _, row in df_new.iterrows():
+                                cursor.execute(sql_ins, tuple(None if pd.isna(x) else x for x in row))
+                        st.success("Baza uspešno osvežena!")
+                        st.rerun()
+    else:
+        st.warning(f"Tabela {tabela_za_rad} je prazna.")
 
     conn.close()
 except Exception as e:
-    st.error(f"Greška: {e}")
-
-# EXPORT
-if not df_raw.empty:
-    st.sidebar.divider()
-    output = io.BytesIO()
-    df_raw.to_excel(output, index=False, engine='openpyxl')
-    st.sidebar.download_button("📥 Excel Export", output.getvalue(), "admin_oprema.xlsx", use_container_width=True)
+    st.error(f"Sistemska greška: {e}")
