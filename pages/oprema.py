@@ -3,6 +3,16 @@ import pandas as pd
 import pymysql
 from datetime import datetime
 
+# --- NAVIGACIJA (Dugmići za druge strane) ---
+st.sidebar.header("🚀 Navigacija")
+if st.sidebar.button("🗺️ Mapa opreme", use_container_width=True):
+    st.switch_page("pages/mapa_opreme.py") # Proveri da li se fajl tačno ovako zove
+
+if st.sidebar.button("🛠️ Admin Panel", use_container_width=True):
+    st.switch_page("pages/oprema_admin.py") # Proveri da li se fajl tačno ovako zove
+
+st.sidebar.markdown("---")
+
 # 1. FUNKCIJA ZA RAD SA BAZOM
 def run_query(query, params=None):
     try:
@@ -38,10 +48,10 @@ def apply_styling(df, should_highlight):
         return ""
     return df.style.applymap(highlight_logic, subset=['vazi_do'])
 
-st.set_page_config(page_title="Radni Panel", layout="wide")
+# KONFIGURACIJA (Izbačen set_page_config jer se postavlja u glavna.py)
 st.title("🔍 Evidencija Opreme")
 
-# SIDEBAR
+# SIDEBAR KONTROLE
 st.sidebar.header("⚙️ Kontrole")
 show_colors = st.sidebar.toggle("Prikaži istekle (boje)", value=True)
 izabrani_broj = st.sidebar.text_input("🔢 Inventarski Broj:", "").strip()
@@ -58,7 +68,7 @@ try:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
 
-        # REORGANIZACIJA KOLONA (Bez ID i Lokacije)
+        # REORGANIZACIJA KOLONA
         fiksne_prve = ['sektor', 'vrsta_opreme', 'proizvodjac', 'naziv_proizvodjac']
         fiksne_zadnje = ['putanja_folder', 'zadnja_lokacija', 'status', 'napomena']
         
@@ -85,10 +95,7 @@ try:
                 t1, t2, t3, t4, t5 = st.tabs(["📋 Osnovno", "🌾 Kulture", "🛠 Servis", "📏 Etalon", "⚖ Baždarenje"])
 
                 with t1:
-                    # Dinamičko pakovanje podataka u 4 kolone radi lepšeg izgleda
                     podaci_za_prikaz = []
-                    
-                    # Definišemo listu labela i ključeva koje želimo da prikažemo
                     svi_potencijalni = [
                         ("Proizvođač", "proizvodjac"), ("Model", "naziv_proizvodjac"),
                         ("Vrsta", "vrsta_opreme"), ("Serijski br.", "seriski_broj"),
@@ -98,13 +105,11 @@ try:
                         ("Godina proizvodnje", "godina_proizvodnje"), ("U upotrebi od", "upotreba_od")
                     ]
 
-                    # Filtriramo samo ono što postoji u bazi
                     for label, key in svi_potencijalni:
                         val = ins.get(key)
                         if ima_podatak(val):
                             podaci_za_prikaz.append((label, val))
 
-                    # Prikazujemo u gridu (4 kolone)
                     cols = st.columns(4)
                     for i, (label, val) in enumerate(podaci_za_prikaz):
                         with cols[i % 4]:
