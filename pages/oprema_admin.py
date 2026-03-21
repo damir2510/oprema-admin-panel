@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import pymysql
-from datetime import datetime
 import io
 
 # --- NAVIGACIJA ---
@@ -11,7 +10,7 @@ if st.sidebar.button("📋 Pregled Opreme", use_container_width=True):
 if st.sidebar.button("📍 Mapa opreme", use_container_width=True):
     st.switch_page("pages/mapa_opreme.py")
 
-# --- Konekcija ---
+# --- KONEKCIJA ---
 def get_conn():
     return pymysql.connect(
         host="mysql-22f7bcfd-nogalod-c393.d.aivencloud.com",
@@ -22,63 +21,93 @@ def get_conn():
         autocommit=True
     )
 
-st.title("🛠 Admin Panel - Upravljanje Bazom")
+st.title("🛠 Admin Panel - Univerzalni Upravnik")
+
+# IZBOR TABELE KOJOM SE UPRAVLJA
+tabela_za_rad = st.selectbox("Izaberi tabelu za uređivanje:",
+                            ["oprema", "istorija_servisa", "istorija_etaloniranja", "istorija_bazdarenja", "kulture_opsezi"])
 
 try:
     conn = get_conn()
-    df_raw = pd.read_sql("SELECT * FROM oprema", conn)
-    
-    if not df_raw.empty:
-        df = df_raw.copy()
-        df.columns = [c.strip().lower() for c in df.columns]
+    # Dinamički povlačimo izabranu tabelu
+    df_raw = pd.read_sql(f"SELECT * FROM {tabela_za_rad}", conn)
+    conn.close()
 
-        # TABOVI ZA ADMINA: UREĐIVANJE vs UVOZ/IZVOZ
+    if not df_raw.empty:
+        # ČIŠĆENJE: Brisanje duplih headera ako postoje u bazi
+        df = df_raw.copy()
+        # Ako je prvi red isti kao naslov kolone, obriši ga
+        for col in df.columns:
+            df = df[df[col].astype(str).str.lower() != str(col).lower()]
+
         tab_edit, tab_import = st.tabs(["📝 Brza Izmena", "📥 Import/Export"])
 
         with tab_edit:
-            st.subheader("Izmena direktno u tabeli")
-            # Konfiguracija kolona (ID sakriven, ostalo editabilno)
+            st.subheader(f"Uređivanje tabele: {tabela_za_rad}")
+            # Editor koji omogućava izmenu bilo kog polja
             edited_df = st.data_editor(
                 df,
                 use_container_width=True,
                 hide_index=True,
-                column_config={"id": None},
-                key="admin_editor"
+                column_config={"id": None}, # Sakrivamo ID
+                key=f"editor_{tabela_za_rad}"
             )
 
-            if st.button("💾 SAČUVAJ IZMENE", type="primary"):
-                with conn.cursor() as cursor:
-                    for _, row in edited_df.iterrows():
-                        sql = """UPDATE oprema SET sektor=%s, vrsta_opreme=%s, proizvodjac=%s, 
-                                 naziv_proizvodjac=%s, status=%s, napomena=%s WHERE id=%s"""
-                        cursor.execute(sql, (row['sektor'], row['vrsta_opreme'], row['proizvodjac'],
-                                           row['naziv_proizvodjac'], row['status'], row['napomena'], row['id']))
-                st.success("Baza je uspešno ažurirana!")
-                st.rerun()
+            if st.button("💾 SAČUVAJ IZMENE U BAZU", type="primary"):
+                # AUTOMATSKO GENERISANJE SQL-a za bilo koju tabelu
+                kolone = [c for c in edited_df.columns if c != 'id']
+                set_clause = ", ".join([f"{c}=%s" for c in kolone])
+                sql = f"UPDATE {tabela_za_rad} SET {set_clause} WHERE id=%s"
+
+                try:
+                    conn = get_conn()
+                    with conn.cursor() as cursor:
+                        for _, row in edited_df.iterrows():
+                            # Priprema vrednosti za SQL
+                            values = [row[c] for c in kolone] + [row['id']]
+                            cursor.execute(sql, values)
+                    conn.close()
+                    st.success(f"Tabela {tabela_za_rad} je uspešno ažurirana!")
+                    st.rerun()
+                except Exception as e_up:
+                    st.error(f"Greška pri čuvanju: {e_up}")
 
         with tab_import:
-            st.subheader("Rad sa Excel fajlovima")
-            
-            # --- EXPORT ---
-            st.write("1. Preuzmi trenutno stanje:")
+            st.subheader(f"Export/Import za {tabela_za_rad}")
+
+            # --- EXPORT SVEGA ---
+            st.write("1. Preuzmi trenutne podatke:")
             output = io.BytesIO()
-            # Ovde se dešava greška ako nema openpyxl-a
             df.to_excel(output, index=False, engine='openpyxl')
-            st.download_button("📥 Preuzmi bazu (Excel)", output.getvalue(), "admin_export.xlsx")
+            st.download_button(f"📥 Preuzmi {tabela_za_rad}.xlsx", output.getvalue(), f"{tabela_za_rad}.xlsx")
 
             st.divider()
 
-            # --- IMPORT ---
-            st.write("2. Ubaci nove podatke (Excel):")
-            uploaded_file = st.file_uploader("Izaberi Excel fajl", type=["xlsx"])
+            # --- IMPORT SVEGA ---
+            st.write("2. Masovni uvoz (Pregazi/Dodaj):")
+            uploaded_file = st.file_uploader("Otpremi Excel", type=["xlsx"])
             if uploaded_file:
                 df_upload = pd.read_excel(uploaded_file, engine='openpyxl')
-                st.write("Pregled fajla za uvoz:")
-                st.dataframe(df_upload.head(3))
-                if st.button("🚀 Potvrdi uvoz u bazu"):
-                    # Ovde bi išla logika za INSERT (ako želiš masovni uvoz)
-                    st.warning("Funkcija uvoza zahteva precizno mapiranje kolona.")
+                st.write("Pregled fajla:")
+                st.dataframe(df_upload.head(5))
 
-    conn.close()
+                if st.button("🚀 POKRENI MASOVNI UVOZ"):
+                    # Logika: Brisanje stare i upis nove (najbrži način za kompletan uvoz)
+                    try:
+                        conn = get_conn()
+                        with conn.cursor() as cursor:
+                            # Opciono: cursor.execute(f"DELETE FROM {tabela_za_rad}")
+                            for _, row in df_upload.iterrows():
+                                cols = ", ".join(df_upload.columns)
+                                placeholder = ", ".join(["%s"] * len(df_upload.columns))
+                                sql_ins = f"INSERT INTO {tabela_za_rad} ({cols}) VALUES ({placeholder})"
+                                cursor.execute(sql_ins, tuple(row))
+                        conn.close()
+                        st.success("Uspešan uvoz!")
+                    except Exception as e_im:
+                        st.error(f"Greška pri uvozu: {e_im}")
+    else:
+        st.info(f"Tabela {tabela_za_rad} je prazna.")
+
 except Exception as e:
     st.error(f"Sistemska greška: {e}")
