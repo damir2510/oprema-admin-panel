@@ -1,42 +1,41 @@
 import streamlit as st
 
-# 1. DEFINISANJE STRANICA (Struktura menija)
-# Napomena: Fajlovi moraju postojati na navedenim putanjama
+# 1. POSTAVKE STRANICE
+st.set_page_config(page_title="BV Web App - Početna", layout="centered", page_icon="🏢")
+
+# 2. DEFINISANJE STRANICA (Struktura navigacije)
+# 'p_oprema' je u folderu pages, ostale su u root-u (glavnom folderu)
 p_pocetna = st.Page("glavna.py", title="Početna", icon="🏠", default=True)
-p_radni_sati = st.Page("pages/radni_sati.py", title="Radni sati", icon="🕒")
 p_oprema = st.Page("pages/oprema.py", title="Oprema", icon="🔍")
 
-# Ove dve strane se NEĆE videti u glavnom meniju levo dok ne uđemo u "Opremu"
-p_mapa = st.Page("pages/mapa_opreme.py", title="Mapa opreme", icon="🗺️")
-p_admin = st.Page("pages/oprema_admin.py", title="Admin Panel", icon="⚙️")
+# Ove dve stranice se NEĆE videti u meniju levo jer ih ne ubacujemo u st.navigation listu
+# Ali su definisane kako bi switch_page mogao da ih pronađe
+p_mapa = st.Page("mapa_opreme.py", title="Mapa opreme")
+p_admin = st.Page("oprema_admin.py", title="Admin Panel")
 
-# 2. NAVIGACIJA (Prikazujemo samo osnovne 3 strane)
-pg = st.navigation([p_pocetna, p_radni_sati, p_oprema])
-
-# 3. POKRETANJE NAVIGACIJE
+# 3. AKTIVACIJA NAVIGACIJE (Prikazujemo samo Početnu i Opremu)
+pg = st.navigation([p_pocetna, p_oprema])
 pg.run()
 
-# --- SADRŽAJ POČETNE STRANE (Isti kao tvoj, samo bez set_page_config jer ga navigacija kontroliše) ---
+# --- SADRŽAJ POČETNE STRANE ---
 st.title("👋 Dobrodošli u BV Web App")
 st.markdown("---")
 
 st.subheader("Izaberite sekciju kojoj želite da pristupite:")
 
-col1, col2 = st.columns(2)
-
-with col1:
-    st.info("🕒 **Radni sati**")
-    st.write("Evidencija i pregled terenskog rada.")
-    if st.button("Idi na Radne sate"):
-        st.switch_page(p_radni_sati)
+# Prikazujemo samo karticu za Opremu (Radni sati su privremeno uklonjeni)
+col1, col2, col3 = st.columns([1, 2, 1])
 
 with col2:
-    st.success("🔍 **Oprema**")
-    st.write("Pregled instrumenata, statusa i baždarenja.")
-    if st.button("Idi na Opremu"):
+    st.success("🔍 **Sektor Opreme**")
+    st.write("Pregled instrumenata, statusa, baždarenja i mernih opsega.")
+    if st.button("Uđi u evidenciju opreme", use_container_width=True):
         st.switch_page(p_oprema)
 
 st.markdown("---")
-with st.expander("📌 Aktuelno"):
-    st.write("- Sistem za GPS praćenje lokacije je aktivan.")
-    st.write("- Nova baza opreme je sinhronizovana.")
+st.write("💡 *Savet: Koristite meni sa leve strane za brzu navigaciju.*")
+
+# Opcioni status sistema
+with st.expander("📌 Aktuelne informacije"):
+    st.write("- Modul za opremu je povezan sa Aiven SQL bazom.")
+    st.write("- Admin panelu i mapi se pristupa direktno iz sekcije Oprema.")
