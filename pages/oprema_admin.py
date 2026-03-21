@@ -3,6 +3,18 @@ import pandas as pd
 import pymysql
 import io
 
+# 1. ŠIRENJE EKRANA (Mora biti na samom vrhu)
+st.set_page_config(layout="wide")
+
+# CSS za forsiranje maksimalne širine tabele
+st.markdown("""
+    <style>
+    .stDataFrame, div[data-testid="stTable"] {
+        width: 100% !important;
+    }
+    </style>
+    """, unsafe_allow_state_composed=True)
+
 # --- NAVIGACIJA ---
 st.sidebar.header("🚀 Navigacija")
 if st.sidebar.button("📋 Pregled Opreme", use_container_width=True):
@@ -29,35 +41,33 @@ tabela_za_rad = st.selectbox("Izaberi tabelu za uređivanje:",
 
 try:
     conn = get_conn()
-    df = pd.read_sql(f"SELECT * FROM {tabela_za_rad}", conn)
+    # Čitamo "sirove" podatke bez ikakvih filtera da bismo videli gde je problem
+    df = pd.read_sql(f"SELECT * FROM `{tabela_za_rad}`", conn)
     conn.close()
     
     if not df.empty:
-        # Čišćenje kolona od razmaka
+        # Čišćenje samo razmaka u nazivima kolona
         df.columns = [c.strip() for c in df.columns]
-        
-        # Popravka: Blaži filter za headere (samo ako je inventarni_broj tekst "inventarni_broj")
-        if 'inventarni_broj' in df.columns:
-            df = df[df['inventarni_broj'].astype(str).str.lower() != 'inventarni_broj']
 
         tab_edit, tab_import = st.tabs(["📝 Brza Izmena", "📥 Import/Export"])
 
         with tab_edit:
             st.subheader(f"Uređivanje: {tabela_za_rad}")
             
-            # PROŠIRENA TABELA: use_container_width=True i podešen height
+            # DATA EDITOR sa punom širinom i vidljivim podacima
             edited_df = st.data_editor(
                 df,
                 use_container_width=True, 
                 hide_index=True,
-                num_rows="dynamic", # Omogućava ti da dodaješ nove redove direktno (opciono)
-                column_config={"id": None}, # Sakriva ID, ali ga čuva u pozadini
+                num_rows="dynamic",
+                column_config={"id": None}, # Sakrivamo ID, ali je tu za UPDATE
                 key=f"editor_{tabela_za_rad}",
-                height=500 # Fiksna visina za lakši skrol
+                height=600
             )
 
             if st.button("💾 SAČUVAJ SVE IZMENE", type="primary"):
                 kolone = [c for c in edited_df.columns if c != 'id']
+                # Automatsko pravljenje SQL-a sa backtickovima (za sigurnost)
                 set_clause = ", ".join([f"`{c}`=%s" for c in kolone])
                 sql = f"UPDATE `{tabela_za_rad}` SET {set_clause} WHERE id=%s"
                 
@@ -65,12 +75,13 @@ try:
                     conn = get_conn()
                     with conn.cursor() as cursor:
                         for _, row in edited_df.iterrows():
-                            values = [row[c] for c in kolone] + [row['id']]
+                            # Priprema vrednosti (zamena NaN u None za bazu)
+                            values = [None if pd.isna(row[c]) else row[c] for c in kolone] + [row['id']]
                             cursor.execute(sql, values)
-                    st.success(f"Uspešno sačuvano!")
+                    st.success(f"Uspešno sačuvano u tabelu {tabela_za_rad}!")
                     st.rerun()
                 except Exception as e_up:
-                    st.error(f"Greška: {e_up}")
+                    st.error(f"Greška pri čuvanju: {e_up}")
                 finally:
                     conn.close()
 
@@ -84,26 +95,32 @@ try:
             
             with c2:
                 st.write("### 📤 Import")
-                uploaded_file = st.file_uploader("Otpremi novi Excel", type=["xlsx"])
+                uploaded_file = st.file_uploader("Otpremi novi Excel (xlsx)", type=["xlsx"])
                 if uploaded_file:
                     df_new = pd.read_excel(uploaded_file, engine='openpyxl')
-                    if st.button("🚀 Pregazi bazu novim fajlom"):
+                    st.write("Pregled fajla:")
+                    st.dataframe(df_new.head(3), use_container_width=True)
+                    
+                    if st.button("🚀 PREGAZI BAZU OVIM FAJLOM"):
                         try:
                             conn = get_conn()
                             with conn.cursor() as cursor:
-                                # OPREZ: Ovo briše stare podatke pre uvoza
+                                # Brisanje starih podataka
                                 cursor.execute(f"TRUNCATE TABLE `{tabela_za_rad}`")
+                                # Upis novih
+                                cols = ", ".join([f"`{c}`" for c in df_new.columns])
+                                placeholders = ", ".join(["%s"] * len(df_new.columns))
+                                sql_ins = f"INSERT INTO `{tabela_za_rad}` ({cols}) VALUES ({placeholders})"
                                 for _, row in df_new.iterrows():
-                                    cols = ", ".join([f"`{c}`" for c in df_new.columns])
-                                    placeholders = ", ".join(["%s"] * len(df_new.columns))
-                                    cursor.execute(f"INSERT INTO `{tabela_za_rad}` ({cols}) VALUES ({placeholders})", tuple(row))
-                            st.success("Baza uspešno pregažena novim podacima!")
+                                    cursor.execute(sql_ins, tuple(None if pd.isna(x) else x for x in row))
+                            st.success("Baza uspešno pregažena!")
+                            st.rerun()
                         except Exception as e_im:
-                            st.error(f"Greška: {e_im}")
+                            st.error(f"Greška pri uvozu: {e_im}")
                         finally:
                             conn.close()
     else:
-        st.info("Tabela je trenutno prazna.")
+        st.warning(f"Tabela '{tabela_za_rad}' je prazna u bazi.")
 
 except Exception as e:
-    st.error(f"Greška: {e}")
+    st.error(f"Kritična greška: {e}")
