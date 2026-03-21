@@ -13,7 +13,7 @@ p_admin = st.Page("pages/oprema_admin.py")
 def run_query(query, params=None):
     try:
         conn = pymysql.connect(
-            host="mysql-22f7bcfd-nogal0d-c393.d.aivencloud.com",
+            host="mysql-22f7bcfd-nogalod-c393.d.aivencloud.com",
             user="avnadmin",
             password="AVNS_0qoNdSQVUuF9wTfHN8D",
             port=27698,
