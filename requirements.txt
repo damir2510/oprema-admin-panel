@@ -3,3 +3,6 @@ pandas
 pymysql
 cryptography
 openpyxl
+folium
+streamlit-folium
+openpyxl
