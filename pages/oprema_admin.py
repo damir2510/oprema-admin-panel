@@ -1,9 +1,28 @@
 import streamlit as st
 import pandas as pd
 import pymysql
+from datetime import datetime
 import io
 
-# --- 1. KONEKCIJA ---
+# --- 1. LOGIN LOGIKA (Lozinka nestaje nakon unosa) ---
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+login_placeholder = st.empty()
+
+if not st.session_state.authenticated:
+    with login_placeholder.container():
+        st.subheader("🔐 Admin Pristup")
+        password = st.text_input("Unesite lozinku:", type="password")
+        if password == "tvoja_lozinka": # <--- OVDE POSTAVI SVOJU LOZINKU
+            st.session_state.authenticated = True
+            login_placeholder.empty()
+            st.rerun()
+        elif password:
+            st.error("Pogrešna lozinka")
+        st.stop()
+
+# --- 2. KONEKCIJA KA BAZI ---
 def get_conn():
     return pymysql.connect(
         host="mysql-22f7bcfd-nogalod-c393.d.aivencloud.com",
@@ -14,92 +33,113 @@ def get_conn():
         autocommit=True
     )
 
-st.title("🛠 Admin Panel - Upravljanje Bazama")
+# --- 3. GPS LOGIKA (Iz GPS kolone izvlači Grad) ---
+def get_city_from_gps(coords):
+    if pd.isna(coords) or str(coords).strip() in ["", "0", "-", "nan"]:
+        return "-"
+    try:
+        # Čišćenje i razdvajanje koordinata (npr. "45.77, 19.11")
+        parts = str(coords).replace(',', ' ').split()
+        lat = float(parts[0])
+        lon = float(parts[1])
+        # Širi opsezi za gradove
+        if 45.70 <= lat <= 45.85 and 19.00 <= lon <= 19.25: return "Sombor"
+        if 45.15 <= lat <= 45.35 and 19.70 <= lon <= 19.95: return "Novi Sad"
+        if 46.00 <= lat <= 46.15 and 19.55 <= lon <= 19.75: return "Subotica"
+    except:
+        pass
+    return "Nepoznata lokacija"
 
-# 2. IZBOR TABELE
-tabela_za_rad = st.selectbox("Izaberi tabelu za rad:", 
-                            ["oprema", "istorija_servisa", "istorija_etaloniranja", "istorija_bazdarenja", "kulture_opsezi"])
+# --- 4. GLAVNI ADMIN PANEL ---
+st.set_page_config(page_title="Admin Panel - Uređivanje", layout="wide")
+st.title("🛠 Admin Panel - Upravljanje i Lokacije")
 
 try:
     conn = get_conn()
-    # Čitanje sirovih podataka iz izabrane tabele
-    df_raw = pd.read_sql(f"SELECT * FROM `{tabela_za_rad}`", conn)
-    conn.close()
+    # Povlačimo sve podatke (uključujući ID koji ćemo sakriti)
+    df_raw = pd.read_sql("SELECT * FROM oprema", conn)
     
     if not df_raw.empty:
-        # --- ČIŠĆENJE PODATAKA (Osigurava da nema praznih redova u prikazu) ---
         df = df_raw.copy()
-        df = df.astype(object).replace([None, 'None', 'nan', 'NaN', 'NaT'], '')
-        df.columns = [str(c).strip() for c in df.columns]
+        df.columns = [c.strip().lower() for c in df.columns]
+        
+        # 1. Automatsko pretvaranje GPS-a u Grad (da bi SQL video promenu)
+        if 'gps_koordinate' in df.columns:
+            df['zadnja_lokacija'] = df['gps_koordinate'].apply(get_city_from_gps)
 
-        tab_edit, tab_io = st.tabs(["📝 Brza Izmena", "📥 Import/Export"])
+        # 2. Sređivanje datuma za prikaz (bez vremena)
+        for col in ['vazi_do', 'datum_bazdarenja', 'datum_kontrole']:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
 
-        with tab_edit:
-            st.subheader(f"Uređivanje: {tabela_za_rad}")
-            
-            # DATA EDITOR - Maksimalna širina
-            edited_df = st.data_editor(
-                df,
-                use_container_width=True, 
-                hide_index=True,
-                num_rows="dynamic",
-                column_config={"id": None}, # ID nevidljiv, ali prisutan
-                key=f"editor_{tabela_za_rad}",
-                height=600
-            )
+        # 3. Definisanje redosleda kolona
+        prve = ['sektor', 'vrsta_opreme', 'proizvodjac', 'naziv_proizvodjac', 'zadnja_lokacija']
+        zadnje = ['putanja_folder', 'status', 'napomena']
+        # Kolone koje ne želimo da vidimo (ali ID ostaje u podacima)
+        izbaci = ['id', 'gps_koordinate', 'stampac', 'ima_mk', 'period_provere', 'godina_proizvodnje', 
+                  'upotreba_od', 'rel_vlaznost', 'opseg_merenja', 'radna_temperatura', 
+                  'klasa_tacnosti', 'preciznost', 'podeok']
+        
+        preostale = [c for c in df.columns if c not in prve and c not in zadnje and c not in izbaci]
+        # Redosled za prikaz (uključujemo 'id' jer nam treba za UPDATE, ali ćemo ga sakriti preko config-a)
+        novi_poredak = ['id'] + prve + preostale + zadnje
 
-            if st.button("💾 SAČUVAJ SVE IZMENE", type="primary", use_container_width=True):
-                try:
-                    conn = get_conn()
-                    with conn.cursor() as cursor:
-                        # Dinamički UPDATE za bilo koju tabelu i bilo koji broj kolona
-                        kolone = [c for c in edited_df.columns if c != 'id']
-                        set_clause = ", ".join([f"`{c}`=%s" for c in kolone])
-                        sql = f"UPDATE `{tabela_za_rad}` SET {set_clause} WHERE id=%s"
+        st.subheader("📝 Brza izmena podataka")
+        st.caption("Izmenite Status, Napomenu ili bilo koje polje direktno u tabeli i kliknite na dugme ispod.")
+
+        # DATA EDITOR (Glavni alat za Admina)
+        edited_df = st.data_editor(
+            df[novi_poredak],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "id": None, # <--- SAKRIVA ID KOLONU (Korisnik je ne vidi, ali Python je koristi)
+                "status": st.column_config.SelectboxColumn("Status", options=["U radu", "Van upotrebe", "Na servisu", "Otpisano"]),
+                "vazi_do": st.column_config.DateColumn("Važi do", format="DD.MM.YYYY"),
+                "putanja_folder": st.column_config.LinkColumn("Link")
+            },
+            key="admin_main_editor"
+        )
+
+        st.write("##")
+
+        # 4. DUGME ZA TRAJNO ČUVANJE U SQL BAZU
+        if st.button("💾 SAČUVAJ SVE IZMENE", type="primary", use_container_width=True):
+            try:
+                with conn.cursor() as cursor:
+                    for index, row in edited_df.iterrows():
+                        # Koristimo ID direktno iz reda editora za precizan upis
+                        row_id = row['id']
                         
-                        for _, row in edited_df.iterrows():
-                            # Vraćanje praznih polja u NULL za SQL
-                            values = [None if str(row[c]).strip() == "" else row[c] for c in kolone] + [row['id']]
-                            cursor.execute(sql, values)
-                    
-                    st.success(f"Tabela '{tabela_za_rad}' je uspešno ažurirana!")
-                    st.rerun()
-                except Exception as e_up:
-                    st.error(f"Greška pri upisu: {e_up}")
-                finally:
-                    conn.close()
+                        sql = """
+                            UPDATE oprema 
+                            SET sektor=%s, vrsta_opreme=%s, proizvodjac=%s, 
+                                naziv_proizvodjac=%s, status=%s, napomena=%s, 
+                                vazi_do=%s, zadnja_lokacija=%s 
+                            WHERE id=%s
+                        """
+                        cursor.execute(sql, (
+                            row.get('sektor'), row.get('vrsta_opreme'), row.get('proizvodjac'),
+                            row.get('naziv_proizvodjac'), row.get('status'), row.get('napomena'),
+                            row.get('vazi_do'), row.get('zadnja_lokacija'), row_id
+                        ))
+                
+                st.success("✅ Izmene i lokacije su uspešno upisane u bazu podataka!")
+                # Pauza mala pre osvežavanja
+                st.rerun()
+                
+            except Exception as db_err:
+                st.error(f"Greška pri upisu u SQL: {db_err}")
 
-        with tab_io:
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write("### 📥 Export")
-                output = io.BytesIO()
-                df.to_excel(output, index=False, engine='openpyxl')
-                st.download_button(f"Preuzmi {tabela_za_rad}.xlsx", output.getvalue(), f"{tabela_za_rad}.xlsx", use_container_width=True)
-            
-            with col2:
-                st.write("### 📤 Import")
-                uploaded_file = st.file_uploader("Otpremi Excel (xlsx)", type=["xlsx"])
-                if uploaded_file:
-                    df_new = pd.read_excel(uploaded_file, engine='openpyxl')
-                    if st.button("🚀 PREGAZI TABELU NOVIM PODACIMA", use_container_width=True):
-                        try:
-                            conn = get_conn()
-                            with conn.cursor() as cursor:
-                                cursor.execute(f"TRUNCATE TABLE `{tabela_za_rad}`")
-                                cols = ", ".join([f"`{c}`" for c in df_new.columns])
-                                placeholders = ", ".join(["%s"] * len(df_new.columns))
-                                sql_ins = f"INSERT INTO `{tabela_za_rad}` ({cols}) VALUES ({placeholders})"
-                                for _, row in df_new.iterrows():
-                                    cursor.execute(sql_ins, tuple(None if pd.isna(x) else x for x in row))
-                            st.success("Baza je uspešno osvežena!")
-                            st.rerun()
-                        except Exception as e_im:
-                            st.error(f"Greška pri uvozu: {e_im}")
-                        finally:
-                            conn.close()
-    else:
-        st.info(f"Tabela '{tabela_za_rad}' je trenutno prazna.")
+    conn.close()
 
 except Exception as e:
-    st.error(f"Greška pri učitavanju: {e}")
+    st.error(f"Sistemska greška: {e}")
+
+# --- DODATAK: EXCEL EXPORT (Opciono za Admina) ---
+if not df_raw.empty:
+    st.sidebar.divider()
+    if st.sidebar.button("📥 Export u Excel"):
+        output = io.BytesIO()
+        df_raw.to_excel(output, index=False)
+        st.sidebar.download_button("Preuzmi fajl", output.getvalue(), "evidencija_admin.xlsx")
