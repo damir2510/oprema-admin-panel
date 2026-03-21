@@ -10,7 +10,7 @@ if st.sidebar.button("📋 Pregled Opreme", use_container_width=True):
     st.switch_page("pages/oprema.py")
 
 if st.sidebar.button("🛠️ Admin Panel", use_container_width=True):
-    st.switch_page("pages/admin.py")
+    st.switch_page("pages/oprema_admin.py")
 
 st.sidebar.markdown("---")
 
