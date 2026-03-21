@@ -5,3 +5,4 @@ cryptography
 openpyxl
 folium
 streamlit-folium
+xlsxwriter
