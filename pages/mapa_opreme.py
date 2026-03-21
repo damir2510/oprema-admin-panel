@@ -1,75 +1,80 @@
 import streamlit as st
 import pandas as pd
-import pymysql
+import folium
+from streamlit_folium import st_folium
+# Uvozimo funkcije iz zajedničkog db_utils fajla
+from db_utils import run_query
 
-# --- KONFIGURACIJA STRANE ---
-st.set_page_config(page_title="Mapa Opreme", layout="wide", page_icon="🗺️")
+# --- 1. NAVIGACIJA ---
+st.sidebar.header("🚀 Navigacija")
+if st.sidebar.button("📋 Pregled Opreme", use_container_width=True):
+    st.switch_page("pages/oprema.py")
 
-# 1. DEFINISANJE STRANICA ZA NAVIGACIJU (Da switch_page radi)
-p_oprema = st.Page("pages/oprema.py", title="Oprema")
-
-# 2. DUGME ZA POVRATAK (Na vrhu sidebara)
-if st.sidebar.button("⬅️ Nazad na Pregled", use_container_width=True):
-    st.switch_page(p_oprema)
+if st.sidebar.button("🛠️ Admin Panel", use_container_width=True):
+    st.switch_page("pages/oprema_admin.py")
 
 st.sidebar.markdown("---")
 
-# 3. FUNKCIJA ZA RAD SA BAZOM
-def run_query(query):
-    try:
-        conn = pymysql.connect(
-            host="mysql-22f7bcfd-nogalod-c393.d.aivencloud.com",
-            user="avnadmin",
-            password="AVNS_0qoNdSQVUuF9wTfHN8D",
-            port=27698,
-            database="defaultdb",
-            cursorclass=pymysql.cursors.DictCursor,
-            ssl={'ssl-mode': 'REQUIRED'}
-        )
-        with conn.cursor() as cur:
-            cur.execute(query)
-            return pd.DataFrame(cur.fetchall())
-    except Exception as e:
-        st.error(f"Greška sa bazom: {e}")
-        return pd.DataFrame()
-    finally:
-        if 'conn' in locals(): conn.close()
+st.title("📍 Interaktivna Mapa Opreme")
 
-st.title("🗺️ Mapa Lokacija Opreme")
-st.write("Prikaz instrumenata na terenu na osnovu GPS koordinata iz baze.")
-
-# 4. IZVLAČENJE I OBRADA PODATAKA
-df = run_query("SELECT inventarni_broj, naziv_proizvodjac, vrsta_opreme, gps_koordinate, zadnja_lokacija FROM oprema")
+# --- 2. POVLAČENJE PODATAKA (Preko db_utils) ---
+query = """
+SELECT inventarni_broj, naziv_proizvodjac, gps_koordinate, 
+       trenutni_radnik, status, zadnja_lokacija 
+FROM oprema
+"""
+df = run_query(query)
 
 if not df.empty:
-    # Filtriramo samo one koji imaju upisane koordinate
-    df = df[df['gps_koordinate'].fillna('').str.contains(',')]
-    
-    def ocisti_koordinate(coord_str):
-        try:
-            # Razdvajamo npr "45.123, 19.456" na lat i lon
-            lat, lon = coord_str.split(',')
-            return float(lat.strip()), float(lon.strip())
-        except:
-            return None, None
+    # --- 3. OBRADA GPS KOORDINATA ---
+    locations = []
+    for _, row in df.iterrows():
+        gps = row.get('gps_koordinate')
+        if gps and "," in str(gps):
+            try:
+                # Čistimo razmake i delimo koordinate
+                parts = str(gps).replace(' ', '').split(',')
+                lat, lon = float(parts[0]), float(parts[1])
+                
+                locations.append({
+                    'lat': lat, 'lon': lon,
+                    'info': f"**Inv:** {row['inventarni_broj']} <br> **Model:** {row['naziv_proizvodjac']}",
+                    'radnik': row.get('trenutni_radnik', '-'),
+                    'status': str(row.get('status', '')).lower(),
+                    'grad': row.get('zadnja_lokacija', '-')
+                })
+            except:
+                continue
 
-    # Primena čišćenja
-    df[['latitude', 'longitude']] = df['gps_koordinate'].apply(lambda x: pd.Series(ocisti_koordinate(x)))
-    
-    # Izbacujemo redove gde čišćenje nije uspelo
-    df = df.dropna(subset=['latitude', 'longitude'])
+    if locations:
+        # Centriramo mapu na prvu lokaciju ili fiksno na Srbiju (44.8, 20.4)
+        m = folium.Map(location=[locations[0]['lat'], locations[0]['lon']], zoom_start=8)
 
-    if not df.empty:
+        for loc in locations:
+            # Boja čiode: zelena za 'u radu' ili 'ispravno', crvena za ostalo
+            color = 'green' if any(x in loc['status'] for x in ['rad', 'ispravno', 'u radu']) else 'red'
+
+            # HTML za Popup prozorčić
+            popup_text = f"""
+                <div style='font-family: sans-serif; font-size: 13px;'>
+                    {loc['info']} <br>
+                    <b>Lokacija:</b> {loc['grad']} <br>
+                    <b>Zadužio:</b> {loc['radnik']}
+                </div>
+            """
+
+            folium.Marker(
+                [loc['lat'], loc['lon']],
+                popup=folium.Popup(popup_text, max_width=300),
+                tooltip="Klikni za detalje",
+                icon=folium.Icon(color=color, icon='info-sign')
+            ).add_to(m)
+
         # Prikaz mape
-        # Streamlit automatski prepoznaje kolone 'latitude' i 'longitude'
-        st.map(df, size=20, color='#ff4b4b')
-        
-        # Tabela ispod mape za proveru
-        with st.expander("📍 Lista lokacija (tabela)"):
-            st.dataframe(df[['inventarni_broj', 'naziv_proizvodjac', 'zadnja_lokacija', 'gps_koordinate']], use_container_width=True, hide_index=True)
+        st_folium(m, width="100%", height=600)
     else:
-        st.warning("Pronađeni su zapisi, ali format GPS koordinata nije ispravan (mora biti: lat, lon).")
+        st.warning("⚠️ Nema validnih GPS koordinata (format: lat, lon).")
 else:
-    st.info("Nema podataka sa GPS koordinatama u bazi.")
+    st.info("Baza je trenutno prazna ili nema podataka za prikaz.")
 
-st.sidebar.info("💡 Savet: GPS koordinate u bazi treba da budu u formatu: **45.834, 19.123**")
+st.sidebar.info("💡 GPS format u bazi: **45.834, 19.123**")
