@@ -5,6 +5,9 @@ import folium
 from streamlit_folium import st_folium
 
 # --- 1. NAVIGACIJA (Dugmići za brzi prelaz) ---
+if st.sidebar.button("⬅️ Nazad na Pregled", use_container_width=True):
+    st.switch_page("pages/oprema.py")
+
 st.sidebar.header("🚀 Navigacija")
 if st.sidebar.button("📋 Pregled Opreme", use_container_width=True):
     st.switch_page("pages/oprema.py")
