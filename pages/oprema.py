@@ -11,10 +11,10 @@ p_admin = st.Page("pages/oprema_admin.py")
 # --- NAVIGACIJA SIDEBAR ---
 st.sidebar.header("🚀 Navigacija")
 if st.sidebar.button("🗺️ Mapa opreme", use_container_width=True):
-    st.switch_page(p_mapa)
+    st.switch_page(mapa_oprema)
 
 if st.sidebar.button("🛠️ Admin Panel", use_container_width=True):
-    st.switch_page(p_admin)
+    st.switch_page(oprema_admin)
 
 st.sidebar.markdown("---")
 
