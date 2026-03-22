@@ -22,17 +22,13 @@ st.markdown("""<style>[data-testid="stSidebarNav"] ul { display: none; }</style>
 st.sidebar.markdown(f"👤 Prijavljeni: **{ime_korisnika}**")
 st.sidebar.header("🚀 Navigacija")
 
-# Page objekat za Mapu
-p_mapa = st.Page("pages/mapa_opreme.py")
-
 if st.sidebar.button("🗺️ Otvori Mapu", use_container_width=True):
-    st.switch_page(p_mapa)
+    st.switch_page("pages/mapa_opreme.py")
 
 if st.sidebar.button("🚪 Odjavi se", use_container_width=True):
     st.session_state['ulogovan'] = False
     st.session_state['is_premium'] = 0
-    st.switch_page(p_pocetna) # switch_page automatski osvežava, ne treba rerun
-
+    st.switch_page("glavna.py")
 
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Filteri prikaza")
@@ -41,12 +37,14 @@ izabrani_broj = st.sidebar.text_input("🔢 Inventarski br. (za KARTON):", "").s
 
 # 4. POMOĆNE FUNKCIJE
 def apply_styling(df_st, active):
-    if not active or 'vazi_do' not in df_st.columns: return df_st
+    if not active or 'vazi_do' not in df_st.columns: 
+        return df_st
     def highlight(v):
         try:
             if pd.notnull(v) and pd.to_datetime(v).date() < datetime.now().date():
                 return "background-color: #ff4b4b; color: white"
-        except: pass
+        except: 
+            pass
         return ""
     return df_st.style.applymap(highlight, subset=['vazi_do'])
 
@@ -64,6 +62,7 @@ try:
     if not df_raw.empty:
         df = df_raw.copy()
         df.columns = [c.strip().lower() for c in df.columns]
+        # Čišćenje duplih hedera ako postoje u bazi
         df = df[df['inventarni_broj'].astype(str).str.lower() != 'inventarni_broj']
 
         # --- ADMIN MOD (UREĐIVANJE) ---
@@ -73,24 +72,38 @@ try:
             
             c1, c2 = st.columns(2)
             with c1:
-               if st.button("💾 SAČUVAJ SVE IZMENE", use_container_width=True, type="primary"):
-                    conn = get_conn(); cur = conn.cursor()
+                if st.button("💾 SAČUVAJ SVE IZMENE", use_container_width=True, type="primary"):
+                    conn = get_conn()
+                    cur = conn.cursor()
                     state = st.session_state["admin_editor"]
                     try:
-                        if state['deleted_rows']:
+                        # Brisanje redova
+                        if state.get('deleted_rows'):
                             for idx in state['deleted_rows']:
                                 row_id = df.iloc[idx]['id']
                                 cur.execute("DELETE FROM oprema WHERE id = %s", (int(row_id),))
+                        
+                        # Update i Insert
                         for _, row in edited_df.iterrows():
                             sql_cols = [c for c in edited_df.columns if c != 'id']
-                            vals = [None if pd.isna(row[c]) or str(row[c]) in ['-', 'nan', 'None'] else row[c] for c in sql_cols]
+                            vals = [None if pd.isna(row[c]) or str(row[c]) in ['-', 'nan', 'None', ''] else row[c] for c in sql_cols]
+                            
                             if not pd.isna(row.get('id')) and str(row.get('id')) != '':
-                                cur.execute(f"UPDATE oprema SET {', '.join([f'{c}=%s' for c in sql_cols])} WHERE id=%s", vals + [int(row['id'])])
+                                set_clause = ", ".join([f"{c}=%s" for c in sql_cols])
+                                cur.execute(f"UPDATE oprema SET {set_clause} WHERE id=%s", vals + [int(row['id'])])
                             else:
-                                cur.execute(f"INSERT INTO oprema ({', '.join(sql_cols)}) VALUES ({', '.join(['%s']*len(sql_cols))})", vals)
-                        conn.commit(); st.success("Baza ažurirana!"); st.cache_data.clear();
-                    except Exception as e: st.error(f"Greška: {e}")
-                    finally: conn.close()
+                                col_names = ", ".join(sql_cols)
+                                placeholders = ", ".join(['%s'] * len(sql_cols))
+                                cur.execute(f"INSERT INTO oprema ({col_names}) VALUES ({placeholders})", vals)
+                        
+                        conn.commit()
+                        st.success("Baza uspešno ažurirana!")
+                        st.cache_data.clear()
+                        st.rerun()
+                    except Exception as e: 
+                        st.error(f"Greška pri čuvanju: {e}")
+                    finally: 
+                        conn.close()
             with c2:
                 st.download_button("📥 PREUZMI EXCEL", data=export_to_excel(df), file_name="oprema.xlsx", use_container_width=True)
 
@@ -131,21 +144,35 @@ try:
                 with t2:
                     m_n = str(ins.get('naziv_proizvodjac', '')).strip()
                     dk = run_query("SELECT kultura, opseg_vlage, protein FROM kulture_opsezi WHERE LOWER(naziv_proizvodjac) LIKE %s", (f"%{m_n.lower()}%",))
-                    st.table(dk) if not dk.empty else st.warning("Nema podataka o kulturama.")
+                    if not dk.empty:
+                        st.table(dk)
+                    else:
+                        st.warning("Nema podataka o kulturama.")
                 
                 with t3:
                     ds = run_query("SELECT datum_servisa, opis_intervencije FROM istorija_servisa WHERE inventarni_broj = %s", (izabrani_broj,))
-                    st.dataframe(ds, use_container_width=True) if not ds.empty else st.info("Nema servisa.")
+                    if not ds.empty:
+                        st.dataframe(ds, use_container_width=True)
+                    else:
+                        st.info("Nema zabeleženih servisa.")
                 
                 with t4:
                     de = run_query("SELECT datum_etaloniranja, vazi_do FROM istorija_etaloniranja WHERE inventarni_broj = %s", (izabrani_broj,))
-                    st.dataframe(de, use_container_width=True) if not de.empty else st.info("Nema etaloniranja.")
+                    if not de.empty:
+                        st.dataframe(de, use_container_width=True)
+                    else:
+                        st.info("Nema podataka o etaloniranju.")
 
                 with t5:
                     db = run_query("SELECT datum_bazdarenja, vazi_do FROM istorija_bazdarenja WHERE inventarni_broj = %s", (izabrani_broj,))
-                    st.dataframe(db, use_container_width=True) if not db.empty else st.info("Nema baždarenja.")
+                    if not db.empty:
+                        st.dataframe(db, use_container_width=True)
+                    else:
+                        st.info("Nema podataka o baždarenju.")
             else:
-                st.error("Instrument nije pronađen!")
+                st.error(f"Instrument sa brojem {izabrani_broj} nije pronađen!")
 
-    else: st.warning("Baza je prazna.")
-except Exception as e: st.error(f"Sistemska greška: {e}")
+    else: 
+        st.warning("Baza podataka je prazna.")
+except Exception as e: 
+    st.error(f"Sistemska greška: {e}")
