@@ -5,17 +5,17 @@ from streamlit_folium import st_folium
 from db_utils import run_query
 
 # --- 1. DEFINICIJA NAVIGACIJE (Dosledno korišćenje objekata) ---
-p_oprema = st.Page("pages/oprema.py")
-p_admin = st.Page("pages/oprema_admin.py")
+
 
 st.sidebar.header("🚀 Navigacija")
 
-# Koristimo objekte p_oprema i p_admin umesto string putanja
-if st.sidebar.button("⬅️ Nazad na Pregled", use_container_width=True):
-    st.switch_page(p_oprema)
+if st.sidebar.button("🗺️ Mapa opreme", use_container_width=True):
+    st.switch_page("pages/mapa_opreme.py")
 
 if st.sidebar.button("🛠️ Admin Panel", use_container_width=True):
-    st.switch_page(p_admin)
+    st.switch_page("pages/oprema_admin.py")
+
+
 
 st.sidebar.markdown("---")
 
