@@ -42,8 +42,12 @@ if st.sidebar.button("🗺️ Otvori Mapu", use_container_width=True):
     st.switch_page("pages/mapa_opreme.py")
 
 if st.sidebar.button("🚪 Odjavi se", use_container_width=True):
+    # 1. Prvo očisti sesiju
     st.session_state['ulogovan'] = False
-    st.rerun()
+    st.session_state['is_premium'] = 0
+    # 2. Umesto rerun, usmeri ga na glavni fajl (on će videti da nije ulogovan)
+    st.switch_page("glavna.py") 
+)
 
 st.sidebar.markdown("---")
 show_colors = st.sidebar.toggle("Prikaži istekle (boje)", value=True)
