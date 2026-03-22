@@ -22,16 +22,14 @@ def prikazi_pocetnu():
         st.write("- Modul za opremu je povezan sa Aiven SQL bazom.")
         st.write("- Radni sati će biti naknadno dodati.")
 
-# 3. DEFINISANJE STRANICA (Sklonjena linija za radni_sati.py)
+# 1. DEFINICIJA OBJEKATA (Mora biti identično u svim fajlovima)
 p_pocetna = st.Page(prikazi_pocetnu, title="Početna", icon="🏠", default=True)
 p_oprema = st.Page("pages/oprema.py", title="Oprema", icon="🔍")
 p_mapa = st.Page("pages/mapa_opreme.py", title="Mapa opreme", icon="🗺️")
 p_admin = st.Page("pages/oprema_admin.py", title="Admin Panel", icon="⚙️")
 
-# 4. NAVIGACIJA (Prikazujemo samo Početnu i Opremu u sidebaru)
+# 2. NAVIGACIJA
 pg = st.navigation({
-    "Glavni meni": [p_pocetna, p_oprema]
+    "Meni": [p_pocetna, p_oprema]
 })
-
-# 5. POKRETANJE NAVIGACIJE
 pg.run()
