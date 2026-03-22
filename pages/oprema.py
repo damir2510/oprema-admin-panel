@@ -5,18 +5,6 @@ from db_utils import run_query
 
 # --- NAVIGACIJA (BEZ st.Page definicija!) ---
 # --- NAVIGACIJA U pages/oprema.py ---
-st.sidebar.header("🚀 Navigacija")
-
-# Pravimo privremene Page objekte koji "gađaju" iste fajlove kao u glavna.py
-p_mapa = st.Page("pages/mapa_opreme.py")
-p_admin = st.Page("pages/oprema_admin.py")
-
-if st.sidebar.button("🗺️ Mapa opreme", use_container_width=True):
-    st.switch_page(p_mapa) # Koristimo varijablu p_mapa, NE string "pages/..."
-
-if st.sidebar.button("🛠️ Admin Panel", use_container_width=True):
-    st.switch_page(p_admin) # Koristimo varijablu p_admin, NE string "pages/..."
-
 
 # 1. POMOĆNE FUNKCIJE
 def ima_podatak(val):
