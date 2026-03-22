@@ -1,10 +1,19 @@
 import streamlit as st
 import pandas as pd
 import io
-# Uvozimo funkcije iz tvog novog db_utils fajla
+# Uvozimo funkcije iz zajedničkog db_utils fajla
 from db_utils import get_conn, run_query
 
-# 1. POMOĆNA FUNKCIJA ZA STRUKTURU (Koristi zajedničku konekciju)
+# --- 1. NAVIGACIJA (Dodato dugme za vracanje) ---
+p_oprema = st.Page("pages/oprema.py")
+
+st.sidebar.header("🚀 Navigacija")
+if st.sidebar.button("⬅️ Nazad na Pregled", use_container_width=True):
+    st.switch_page(p_oprema)
+
+st.sidebar.markdown("---")
+
+# 2. POMOĆNA FUNKCIJA ZA STRUKTURU
 def get_table_structure(tabela):
     conn = get_conn()
     try:
@@ -17,7 +26,7 @@ def get_table_structure(tabela):
     finally:
         conn.close()
 
-# 2. EXCEL IZVOZ
+# 3. EXCEL IZVOZ
 def export_to_excel_clean(df, sheet_name):
     output = io.BytesIO()
     cols_to_hide = ['oprema_id', 'id_opreme']
@@ -37,8 +46,6 @@ def export_to_excel_clean(df, sheet_name):
             fmt = l_fmt if col.lower() == 'id' else u_fmt
             worksheet.set_column(i, i, width, fmt)
     return output.getvalue()
-
-# UKLONJEN set_page_config jer se sada postavlja globalno u glavna.py ili oprema.py
 
 # --- LOGIN PROVERA ---
 if st.sidebar.text_input("🔐 Lozinka:", type="password") == "damir123":
@@ -144,4 +151,4 @@ if st.sidebar.text_input("🔐 Lozinka:", type="password") == "damir123":
                 cur.execute(f"DELETE FROM {izabrana_tabela} WHERE {ident} = %s", (val_del,))
                 conn.commit(); conn.close(); st.warning("Podatak obrisan."); st.cache_data.clear(); st.rerun()
 else:
-    st.info("Unesite lozinku u sidebaru za pristup.")
+    st.info("Prijavite se lozinkom za pristup admin panelu.")
