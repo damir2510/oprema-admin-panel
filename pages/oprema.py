@@ -83,7 +83,7 @@ try:
         df.columns = [c.strip().lower() for c in df.columns]
 
         # Filter kolona koje ne želimo u tabeli (ali ostaju u bazi za karton)
-        za_izbacivanje = ['ima_mk', 'gps_koordinate', 'radna_temperatura', 'rel_vlaznost', 'godina_proizvodnje', 'opseg_merenja', 'klasa_tacnosti', 'preciznost', 'podeok']
+        za_izbacivanje = ['ima_mk', 'gps_koordinate', 'radna_temperatura', 'rel_vlaznost', 'godina_proizvodnje', 'opseg_merenja', 'klasa_tacnosti', 'preciznost', 'podeok', 'upotreba_od', 'period_provere', 'bar_kod', 'stampac', 'status']
         df_prikaz = df.drop(columns=[c for c in za_izbacivanje if c in df.columns])
 
         if is_admin:
