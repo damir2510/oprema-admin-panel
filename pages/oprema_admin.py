@@ -1,12 +1,26 @@
 import streamlit as st
 import pandas as pd
 import io
-# Uvozimo funkcije iz zajedničkog db_utils fajla
 from db_utils import get_conn, run_query
 
-# --- 1. NAVIGACIJA (Dodato dugme za vracanje) ---
+# --- 1. KONFIGURACIJA (Široki ekran i sakrivanje menija) ---
+st.set_page_config(page_title="Master Admin Panel", layout="wide")
 
-# 2. POMOĆNA FUNKCIJA ZA STRUKTURU
+st.markdown("""
+    <style>
+        [data-testid="stSidebarNav"] ul { display: none; }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- 2. NAVIGACIJA ---
+p_oprema = st.Page("pages/oprema.py")
+st.sidebar.header("🚀 Navigacija")
+if st.sidebar.button("⬅️ Nazad na Pregled", use_container_width=True):
+    st.switch_page(p_oprema)
+
+st.sidebar.markdown("---")
+
+# --- 3. POMOĆNE FUNKCIJE ---
 def get_table_structure(tabela):
     conn = get_conn()
     try:
@@ -19,7 +33,6 @@ def get_table_structure(tabela):
     finally:
         conn.close()
 
-# 3. EXCEL IZVOZ
 def export_to_excel_clean(df, sheet_name):
     output = io.BytesIO()
     cols_to_hide = ['oprema_id', 'id_opreme']
@@ -40,7 +53,7 @@ def export_to_excel_clean(df, sheet_name):
             worksheet.set_column(i, i, width, fmt)
     return output.getvalue()
 
-# --- LOGIN PROVERA ---
+# --- 4. GLAVNA LOGIKA (LOGIN) ---
 if st.sidebar.text_input("🔐 Lozinka:", type="password") == "damir123":
     st.title("⚙️ Master Admin Panel")
     
@@ -49,21 +62,20 @@ if st.sidebar.text_input("🔐 Lozinka:", type="password") == "damir123":
 
     t1, t2, t3 = st.tabs(["📝 Direktan unos & Pretraga", "📥 Excel Alati", "🗑️ Brisanje"])
 
-    # --- TAB 1: DIREKTAN UNOS ---
     with t1:
         df_all = get_table_structure(izabrana_tabela)
         
-        st.info("💡 Filteri za lakše pronalaženje:")
+        st.info("💡 Tabela ispod se širi na ceo ekran. Koristite pretragu za brzi pronalazak.")
         col_f1, col_f2 = st.columns([1, 2])
         
         with col_f1:
             sektori = ["SVI"]
             if 'sektor' in df_all.columns:
                 sektori += sorted(df_all['sektor'].dropna().unique().tolist())
-            izabrani_sektor = st.selectbox("📍 Sektor:", sektori)
+            izabrani_sektor = st.selectbox("📍 Filtriraj po sektoru:", sektori)
             
         with col_f2:
-            search_query = st.text_input("🔍 Brza pretraga:", "").lower()
+            search_query = st.text_input("🔍 Brza pretraga (Inv. broj, Naziv, Proizvođač...):", "").lower()
 
         df_filtered = df_all.copy()
         if izabrani_sektor != "SVI" and 'sektor' in df_filtered.columns:
@@ -73,10 +85,18 @@ if st.sidebar.text_input("🔐 Lozinka:", type="password") == "damir123":
             mask = df_filtered.astype(str).apply(lambda x: x.str.lower().str.contains(search_query)).any(axis=1)
             df_filtered = df_filtered[mask]
 
-        st.write(f"Pronađeno: **{len(df_filtered)}**")
-        edited_df = st.data_editor(df_filtered, num_rows="dynamic", use_container_width=True, hide_index=True, key=f"ed_{izabrana_tabela}")
+        st.write(f"Pronađeno stavki: **{len(df_filtered)}**")
         
-        if st.button("💾 SAČUVAJ IZMENE"):
+        # Tabela sa podacima - maksimalna širina
+        edited_df = st.data_editor(
+            df_filtered, 
+            num_rows="dynamic", 
+            use_container_width=True, 
+            hide_index=True, 
+            key=f"editor_{izabrana_tabela}"
+        )
+        
+        if st.button("💾 SAČUVAJ IZMENE U BAZU", use_container_width=True):
             conn = get_conn()
             cur = conn.cursor()
             try:
@@ -87,8 +107,8 @@ if st.sidebar.text_input("🔐 Lozinka:", type="password") == "damir123":
                         inv = str(row['inventarni_broj']).strip()
                         cur.execute("SELECT id FROM oprema WHERE inventarni_broj = %s", (inv,))
                         res = cur.fetchone()
-                        fk = "oprema_id" if "oprema_id" in sql_cols else ("id_opreme" if "id_opreme" in sql_cols else None)
-                        if fk and res: row[fk] = res['id']
+                        fk_name = "oprema_id" if "oprema_id" in sql_cols else ("id_opreme" if "id_opreme" in sql_cols else None)
+                        if fk_name and res: row[fk_name] = res['id']
                     
                     vals = [None if pd.isna(row[c]) or str(row[c]) in ['-', 'nan', 'None'] else row[c] for c in sql_cols]
                     
@@ -98,27 +118,31 @@ if st.sidebar.text_input("🔐 Lozinka:", type="password") == "damir123":
                         cur.execute(f"INSERT INTO {izabrana_tabela} ({', '.join(sql_cols)}) VALUES ({', '.join(['%s']*len(sql_cols))})", vals)
                 
                 conn.commit()
-                st.success("Uspešno sačuvano u SQL bazu!")
+                st.success("Baza uspešno ažurirana!")
                 st.cache_data.clear()
             except Exception as e:
                 st.error(f"Greška: {e}")
             finally:
                 conn.close()
 
-    # --- TAB 2: EXCEL ---
     with t2:
         c1, c2 = st.columns(2)
         with c1:
             st.write("### 📤 Izvoz")
             df_exp = get_table_structure(izabrana_tabela)
-            st.download_button(f"Preuzmi {izabrana_tabela}.xlsx", export_to_excel_clean(df_exp, izabrana_tabela), f"{izabrana_tabela}.xlsx")
-        
+            st.download_button(
+                label=f"Preuzmi {izabrana_tabela}.xlsx",
+                data=export_to_excel_clean(df_exp, izabrana_tabela),
+                file_name=f"{izabrana_tabela}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
         with c2:
             st.write("### 📥 Uvoz")
             up_file = st.file_uploader("Otpremite Excel", type=['xlsx'])
             if up_file:
                 df_u = pd.read_excel(up_file, engine='openpyxl').fillna('-')
-                if st.button("🚀 SINHRONIZUJ"):
+                if st.button("🚀 POKRENI SINHRONIZACIJU", use_container_width=True):
                     conn = get_conn(); cur = conn.cursor()
                     try:
                         cur.execute(f"DESCRIBE {izabrana_tabela}"); sql_cols = [r['Field'] for r in cur.fetchall()]
@@ -130,15 +154,14 @@ if st.sidebar.text_input("🔐 Lozinka:", type="password") == "damir123":
                                 cur.execute(f"UPDATE {izabrana_tabela} SET {', '.join([f'{c}=%s' for c in cols])} WHERE id=%s", vals + [int(row_id)])
                             else:
                                 cur.execute(f"INSERT INTO {izabrana_tabela} ({', '.join(cols)}) VALUES ({', '.join(['%s']*len(cols))})", vals)
-                        conn.commit(); st.success("Sinhronizacija završena!"); st.cache_data.clear()
+                        conn.commit(); st.success("Uvoz završen!"); st.cache_data.clear()
                     except Exception as e: st.error(f"Greška: {e}")
                     finally: conn.close()
 
-    # --- TAB 3: BRISANJE ---
     with t3:
         ident = "inventarni_broj" if izabrana_tabela == "oprema" else "id"
         val_del = st.text_input(f"Unesi {ident} za brisanje:")
-        if st.button("❌ TRAJNO OBRIŠI"):
+        if st.button("❌ TRAJNO OBRIŠI", use_container_width=True):
             if val_del:
                 conn = get_conn(); cur = conn.cursor()
                 cur.execute(f"DELETE FROM {izabrana_tabela} WHERE {ident} = %s", (val_del,))
