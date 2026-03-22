@@ -35,7 +35,6 @@ if is_admin:
     izbor_prikaza = st.sidebar.selectbox("Izaberi tabelu:", list(tabela_opcije.keys()))
     izabrana_tabela = tabela_opcije[izbor_prikaza]
 
-    # --- FUNKCIJA ZA UVOZ (IMPORT) ---
     st.sidebar.markdown("---")
     st.sidebar.subheader("📥 Uvoz podataka")
     uploaded_file = st.sidebar.file_uploader(f"Uvezi Excel u {izabrana_tabela}", type=["xlsx"])
@@ -82,7 +81,7 @@ try:
     if not df.empty:
         df.columns = [c.strip().lower() for c in df.columns]
 
-        # Filter kolona koje ne želimo u tabeli (ali ostaju u bazi za karton)
+        # Filter kolona za tabelarni prikaz
         za_izbacivanje = ['ima_mk', 'gps_koordinate', 'radna_temperatura', 'rel_vlaznost', 'godina_proizvodnje', 'opseg_merenja', 'klasa_tacnosti', 'preciznost', 'podeok', 'upotreba_od', 'period_provere', 'bar_kod', 'stampac', 'status']
         df_prikaz = df.drop(columns=[c for c in za_izbacivanje if c in df.columns])
 
@@ -98,38 +97,58 @@ try:
             rez = df[df['inventarni_broj'].astype(str).str.strip() == izabrani_broj]
             if not rez.empty:
                 ins = rez.iloc[0]
-                st.subheader(f"📄 Karton: {ins.get('naziv_proizvodjac', '')} (Inv. br: {izabrani_broj})")
+                
+                # Zaglavlje kartona sa ikonicom
+                st.subheader(f"📑 Karton: {ins.get('naziv_proizvodjac', '')} (Inv. br: {izabrani_broj})")
                 
                 t1, t2, t3, t4, t5 = st.tabs(["📋 Podaci", "🌾 Kulture", "🛠 Servis", "📏 Etalon", "⚖ Baždarenje"])
                 
                 with t1:
+                    # Dodate kolone: upotreba_od, period_provere
                     detalji = [
                         ("🏭 Proizvođač", "proizvodjac"), ("📦 Model", "naziv_proizvodjac"),
                         ("🔢 Serijski br.", "seriski_broj"), ("📅 Godina pr.", "godina_proizvodnje"),
                         ("📍 Sektor", "sektor"), ("📅 Važi do", "vazi_do"),
                         ("📏 Opseg", "opseg_merenja"), ("🎯 Klasa", "klasa_tacnosti"),
                         ("⚖ Preciznost", "preciznost"), ("🔘 Podeok", "podeok"),
-                        ("🌡️ Temp.", "radna_temperatura"), ("💧 Vlažnost", "rel_vlaznost")
+                        ("🌡️ Temp.", "radna_temperatura"), ("💧 Vlažnost", "rel_vlaznost"),
+                        ("⏳ Upotreba od", "upotreba_od"), ("🔄 Period provere", "period_provere")
                     ]
                     cols = st.columns(4)
                     for i, (l, k) in enumerate(detalji):
-                        with cols[i % 4]: st.metric(l, str(ins.get(k, "-")))
+                        val = ins.get(k, "-")
+                        with cols[i % 4]:
+                            st.metric(label=l, value=str(val))
 
                 with t2:
                     m_n = str(ins.get('naziv_proizvodjac', '')).strip()
                     dk = run_query("SELECT kultura, opseg_vlage, protein FROM kulture_opsezi WHERE LOWER(naziv_proizvodjac) LIKE %s", (f"%{m_n.lower()}%",))
-                    st.table(dk) if not dk.empty else st.info("Nema kultura.")
+                    if not dk.empty:
+                        st.table(dk)
+                    else:
+                        st.info("Nema podataka o kulturama.")
 
                 with t3:
-                    ds = run_query(f"SELECT datum_servisa, opis_intervencije FROM istorija_servisa WHERE inventarni_broj = %s", (izabrani_broj,))
-                    st.dataframe(ds, use_container_width=True) if not ds.empty else st.info("Nema servisa.")
+                    ds = run_query("SELECT datum_servisa, opis_intervencije FROM istorija_servisa WHERE inventarni_broj = %s", (izabrani_broj,))
+                    if not ds.empty:
+                        st.dataframe(ds, use_container_width=True)
+                    else:
+                        st.info("Nema zabeleženih servisa.")
 
                 with t4:
-                    de = run_query(f"SELECT datum_etaloniranja, vazi_do FROM istorija_etaloniranja WHERE inventarni_broj = %s", (izabrani_broj,))
-                    st.dataframe(de, use_container_width=True) if not de.empty else st.info("Nema etaloniranja.")
+                    de = run_query("SELECT datum_etaloniranja, vazi_do FROM istorija_etaloniranja WHERE inventarni_broj = %s", (izabrani_broj,))
+                    if not de.empty:
+                        st.dataframe(de, use_container_width=True)
+                    else:
+                        st.info("Nema podataka o etaloniranju.")
 
                 with t5:
-                    db = run_query(f"SELECT datum_bazdarenja, vazi_do FROM istorija_bazdarenja WHERE inventarni_broj = %s", (izabrani_broj,))
-                    st.dataframe(db, use_container_width=True) if not db.empty else st.info("Nema baždarenja.")
+                    db = run_query("SELECT datum_bazdarenja, vazi_do FROM istorija_bazdarenja WHERE inventarni_broj = %s", (izabrani_broj,))
+                    if not db.empty:
+                        st.dataframe(db, use_container_width=True)
+                    else:
+                        st.info("Nema podataka o baždarenju.")
+            else:
+                st.error(f"Uređaj sa inventarnim brojem {izabrani_broj} nije pronađen.")
     else: st.warning("Tabela je prazna.")
-except Exception as e: st.error(f"Greška: {e}")
+except Exception as e: st.error(f"Sistemska greška: {e}")
