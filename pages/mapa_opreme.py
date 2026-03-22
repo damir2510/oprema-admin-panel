@@ -6,19 +6,6 @@ from db_utils import run_query
 
 # --- 1. DEFINICIJA NAVIGACIJE (Dosledno korišćenje objekata) ---
 
-
-st.sidebar.header("🚀 Navigacija")
-
-if st.sidebar.button("🗺️ Mapa opreme", use_container_width=True):
-    st.switch_page("pages/mapa_opreme.py")
-
-if st.sidebar.button("🛠️ Admin Panel", use_container_width=True):
-    st.switch_page("pages/oprema_admin.py")
-
-
-
-st.sidebar.markdown("---")
-
 st.title("📍 Interaktivna Mapa Opreme")
 
 # --- 2. POVLAČENJE PODATAKA ---
