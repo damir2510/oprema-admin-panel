@@ -28,9 +28,11 @@ p_mapa = st.Page("pages/mapa_opreme.py")
 if st.sidebar.button("🗺️ Otvori Mapu", use_container_width=True):
     st.switch_page(p_mapa)
 
-if st.sidebar.button("🚪 Odjavi se", use_container_width=True, type="secondary"):
+if st.sidebar.button("🚪 Odjavi se", use_container_width=True):
     st.session_state['ulogovan'] = False
-    st.rerun()
+    st.session_state['is_premium'] = 0
+    st.switch_page(p_pocetna) # switch_page automatski osvežava, ne treba rerun
+
 
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Filteri prikaza")
@@ -71,7 +73,7 @@ try:
             
             c1, c2 = st.columns(2)
             with c1:
-                if st.button("💾 SAČUVAJ SVE IZMENE", use_container_width=True, type="primary"):
+               if st.button("💾 SAČUVAJ SVE IZMENE", use_container_width=True, type="primary"):
                     conn = get_conn(); cur = conn.cursor()
                     state = st.session_state["admin_editor"]
                     try:
@@ -86,7 +88,7 @@ try:
                                 cur.execute(f"UPDATE oprema SET {', '.join([f'{c}=%s' for c in sql_cols])} WHERE id=%s", vals + [int(row['id'])])
                             else:
                                 cur.execute(f"INSERT INTO oprema ({', '.join(sql_cols)}) VALUES ({', '.join(['%s']*len(sql_cols))})", vals)
-                        conn.commit(); st.success("Baza ažurirana!"); st.cache_data.clear(); st.rerun()
+                        conn.commit(); st.success("Baza ažurirana!"); st.cache_data.clear();
                     except Exception as e: st.error(f"Greška: {e}")
                     finally: conn.close()
             with c2:
