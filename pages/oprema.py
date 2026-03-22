@@ -7,19 +7,20 @@ from db_utils import run_query, get_conn
 # 1. KONFIGURACIJA
 st.set_page_config(page_title="Evidencija Opreme", layout="wide")
 
-if not st.session_state.get('ulogovan'):
-    st.rerun()
+# SIGURNOST: Ako pukne sesija, vrati na početak bez Bad Gateway greške
+if 'ulogovan' not in st.session_state or not st.session_state['ulogovan']:
+    st.info("Sesija je istekla. Molimo osvežite stranu.")
+    st.stop()
 
 is_admin = st.session_state.get('is_premium') == 5
 ime_korisnika = st.session_state.get('ime_korisnika', 'Korisnik')
 
-# Sakrivanje raketa
+# Sakrivanje standardne navigacije
 st.markdown("""<style>[data-testid="stSidebarNav"] ul { display: none; }</style>""", unsafe_allow_html=True)
 
-# 2. SIDEBAR - ADMIN KONTROLE NA VRHU
+# 2. SIDEBAR - ADMIN KONTROLE
 st.sidebar.markdown(f"👤 Prijavljeni: **{ime_korisnika}**")
 
-# Logika za promenu tabela (Samo za Admina)
 tabela_opcije = {
     "Glavna Oprema": "oprema",
     "Istorija Servisa": "istorija_servisa",
@@ -28,9 +29,10 @@ tabela_opcije = {
     "Kulture": "kulture_opsezi"
 }
 
+# ADMIN MENI: Mora biti van svih uslova da ne bi nestao
 if is_admin:
     st.sidebar.header("📊 Admin: Izbor tabele")
-    izbor_prikaza = st.sidebar.selectbox("Izaberi tabelu za rad/izvoz:", list(tabela_opcije.keys()))
+    izbor_prikaza = st.sidebar.selectbox("Izaberi tabelu:", list(tabela_opcije.keys()), key="admin_sel")
     izabrana_tabela = tabela_opcije[izbor_prikaza]
 else:
     izabrana_tabela = "oprema"
@@ -42,12 +44,9 @@ if st.sidebar.button("🗺️ Otvori Mapu", use_container_width=True):
     st.switch_page("pages/mapa_opreme.py")
 
 if st.sidebar.button("🚪 Odjavi se", use_container_width=True):
-    # 1. Prvo očisti sesiju
     st.session_state['ulogovan'] = False
-    st.session_state['is_premium'] = 0
-    # 2. Umesto rerun, usmeri ga na glavni fajl (on će videti da nije ulogovan)
-    st.switch_page("glavna.py") 
-)
+    st.write("Odjavljivanje...") # Mali feedback pre nego što pukne konekcija
+    st.rerun()
 
 st.sidebar.markdown("---")
 show_colors = st.sidebar.toggle("Prikaži istekle (boje)", value=True)
@@ -57,16 +56,20 @@ izabrani_broj = st.sidebar.text_input("🔢 Inventarski br. (za KARTON):", "").s
 def apply_styling(df_st, active):
     if not active or 'vazi_do' not in df_st.columns: 
         return df_st
+    
     def highlight(v):
+        if pd.isna(v) or v == "" or v == "-":
+            return ""
         try:
-            if pd.notnull(v):
-                # Provera datuma
-                val_dt = pd.to_datetime(v).date()
-                if val_dt < datetime.now().date():
-                    return "background-color: #ff4b4b; color: white"
-        except: pass
+            # Konverzija u datum radi poređenja
+            val_dt = pd.to_datetime(v).date()
+            if val_dt < datetime.now().date():
+                return "background-color: #ff4b4b; color: white"
+        except:
+            return ""
         return ""
-    # Streamlit 1.30+ koristi .map() umesto .applymap()
+    
+    # Koristimo .map umesto .applymap za novije verzije Streamlit-a
     return df_st.style.map(highlight, subset=['vazi_do'])
 
 def export_to_excel(df_exp, name):
@@ -86,8 +89,8 @@ try:
 
         if is_admin:
             st.info(f"🔓 Admin mod: Uređivanje tabele `{izabrana_tabela}`")
-            # Dinamički editor sa ključem tabele
-            edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"ed_{izabrana_tabela}")
+            # Dodat key baziran na tabeli da editor ne "zapamti" staru tabelu
+            edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"editor_{izabrana_tabela}")
             
             c1, c2 = st.columns(2)
             with c1:
@@ -101,20 +104,21 @@ try:
                             cur.execute(f"INSERT INTO {izabrana_tabela} ({', '.join(cols)}) VALUES ({', '.join(['%s']*len(cols))})", vals)
                         conn.commit()
                         st.success("Baza ažurirana!"); st.cache_data.clear(); st.rerun()
-                    except Exception as e: st.error(f"Greška: {e}")
+                    except Exception as e: st.error(f"Greška pri čuvanju: {e}")
                     finally: conn.close()
             with c2:
                 st.download_button("📥 PREUZMI EXCEL", data=export_to_excel(df, izabrana_tabela), file_name=f"{izabrana_tabela}.xlsx", use_container_width=True)
         else:
+            # Korisnički prikaz sa bojama
             st.dataframe(apply_styling(df, show_colors), use_container_width=True, hide_index=True)
 
-        # --- MATIČNI KARTON ---
+        # --- MATIČNI KARTON (Prikazuje se samo ako je izabrana glavna tabela) ---
         if izabrani_broj and izabrana_tabela == "oprema":
             st.markdown("---")
             rez = df[df['inventarni_broj'].astype(str).str.strip() == izabrani_broj]
             
             if not rez.empty:
-                ins = rez.iloc[0] # Uzimamo prvi red kao Series
+                ins = rez.iloc[0]
                 st.subheader(f"📄 Matični karton: {ins.get('naziv_proizvodjac', 'Nezavedeno')}")
                 
                 t1, t2, t3, t4, t5 = st.tabs(["📋 Osnovni podaci", "🌾 Kulture", "🛠 Servis", "📏 Etalon", "⚖ Baždarenje"])
@@ -127,11 +131,11 @@ try:
                         ("📏 Opseg merenja", "opseg_merenja"), ("🎯 Klasa tačnosti", "klasa_tacnosti"),
                         ("⚖ Preciznost (d)", "preciznost"), ("🔘 Podeok (e)", "podeok")
                     ]
-                    cols = st.columns(4)
+                    c_karton = st.columns(4)
                     for i, (label, key) in enumerate(detalji):
                         val = ins.get(key)
                         if val and str(val).strip() not in ["", "None", "nan", "-"]:
-                            with cols[i % 4]:
+                            with c_karton[i % 4]:
                                 st.caption(label)
                                 st.info(val)
 
@@ -139,24 +143,25 @@ try:
                     m_n = str(ins.get('naziv_proizvodjac', '')).strip()
                     dk = run_query("SELECT kultura, opseg_vlage, protein FROM kulture_opsezi WHERE LOWER(naziv_proizvodjac) LIKE %s", (f"%{m_n.lower()}%",))
                     if not dk.empty: st.table(dk)
-                    else: st.warning("Nema podataka o kulturama.")
+                    else: st.warning("Nema kulture za ovaj model.")
 
-                # Popravka za Servis, Etalon, Bazdarenje (bez DeltaGenerator greške)
                 with t3:
-                    ds = run_query(f"SELECT * FROM istorija_servisa WHERE inventarni_broj = '{izabrani_broj}'")
+                    ds = run_query(f"SELECT datum_servisa, opis_intervencije FROM istorija_servisa WHERE inventarni_broj = '{izabrani_broj}'")
                     if not ds.empty: st.dataframe(ds, use_container_width=True)
-                    else: st.info("Nema podataka.")
+                    else: st.info("Nema servisa.")
 
                 with t4:
-                    de = run_query(f"SELECT * FROM istorija_etaloniranja WHERE inventarni_broj = '{izabrani_broj}'")
+                    de = run_query(f"SELECT datum_etaloniranja, vazi_do FROM istorija_etaloniranja WHERE inventarni_broj = '{izabrani_broj}'")
                     if not de.empty: st.dataframe(de, use_container_width=True)
-                    else: st.info("Nema podataka.")
+                    else: st.info("Nema etaloniranja.")
 
                 with t5:
-                    db = run_query(f"SELECT * FROM istorija_bazdarenja WHERE inventarni_broj = '{izabrani_broj}'")
+                    db = run_query(f"SELECT datum_bazdarenja, vazi_do FROM istorija_bazdarenja WHERE inventarni_broj = '{izabrani_broj}'")
                     if not db.empty: st.dataframe(db, use_container_width=True)
-                    else: st.info("Nema podataka.")
+                    else: st.info("Nema baždarenja.")
             else:
-                st.error("Instrument nije pronađen.")
-    else: st.warning("Tabela je prazna.")
-except Exception as e: st.error(f"Greška: {e}")
+                st.error("Instrument sa tim brojem nije pronađen.")
+    else:
+        st.warning("Tabela je prazna.")
+except Exception as e:
+    st.error(f"Došlo je do greške: {e}")
