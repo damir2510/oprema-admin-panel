@@ -1,157 +1,131 @@
 import streamlit as st
 import pandas as pd
+import io
 from datetime import datetime
-from db_utils import run_query 
+from db_utils import run_query, get_conn
 
-# --- 1. PROVERA LOGOVANJA (Sigurnosna kočnica) ---
+# 1. SIGURNOSNA PROVERA LOGOVANJA
 if not st.session_state.get('ulogovan'):
     st.switch_page("glavna.py")
 
-# --- 2. KONFIGURACIJA ---
+# 2. KONFIGURACIJA STRANE
 st.set_page_config(page_title="Sektor Opreme", layout="wide")
 
-# CSS za sakrivanje standardnog menija
-st.markdown("""
-    <style>
-        [data-testid="stSidebarNav"] ul { display: none; }
-    </style>
-""", unsafe_allow_html=True)
+# Provera nivoa pristupa
+is_admin = st.session_state.get('is_premium') == 5
 
-# --- 3. DEFINISANJE STRANICA ---
+# Sakrivanje standardne navigacije (rakete)
+st.markdown("""<style>[data-testid="stSidebarNav"] ul { display: none; }</style>""", unsafe_allow_html=True)
+
+# 3. SIDEBAR NAVIGACIJA I KONTROLE
+st.sidebar.header("🚀 Navigacija")
 p_pocetna = st.Page("glavna.py")
 p_mapa = st.Page("pages/mapa_opreme.py")
-p_admin = st.Page("pages/oprema_admin.py")
-
-# --- 4. SIDEBAR NAVIGACIJA ---
-st.sidebar.header("🚀 Navigacija")
 
 if st.sidebar.button("🏠 Početna", use_container_width=True):
     st.switch_page(p_pocetna)
-
-if st.sidebar.button("🗺️ Mapa opreme", use_container_width=True):
+if st.sidebar.button("🗺️ Mapa lokacija", use_container_width=True):
     st.switch_page(p_mapa)
 
-# PRIKAZ ADMIN DUGMETA SAMO ZA PREMIUM 5
-if st.session_state.get('is_premium') == 5:
-    if st.sidebar.button("🔐 Admin Panel", use_container_width=True):
-        st.switch_page(p_admin)
-
 st.sidebar.markdown("---")
-
-# --- DUGME ZA ODJAVU ---
 if st.sidebar.button("🚪 Odjavi se", use_container_width=True, type="secondary"):
     st.session_state['ulogovan'] = False
-    st.session_state['is_premium'] = 0
     st.rerun()
 
-# --- 5. POMOĆNE FUNKCIJE ---
-def ima_podatak(val):
-    return str(val).strip() not in ["", "None", "nan", "-", "0", "NoneType"]
-
-def apply_styling(df, should_highlight):
-    if not should_highlight or 'vazi_do' not in df.columns:
-        return df
-    def highlight_logic(val):
-        if pd.isna(val) or val == "" or val == "-": return ""
-        try:
-            if pd.to_datetime(val).date() < datetime.now().date():
-                return "background-color: #ff4b4b; color: white"
-        except: pass
-        return ""
-    return df.style.applymap(highlight_logic, subset=['vazi_do'])
-
-# --- 6. GLAVNI SADRŽAJ ---
-st.title("🔍 Evidencija Opreme")
-
-st.sidebar.header("⚙️ Kontrole")
+st.sidebar.markdown("---")
+st.sidebar.header("⚙️ Filteri prikaza")
 show_colors = st.sidebar.toggle("Prikaži istekle (boje)", value=True)
-izabrani_broj = st.sidebar.text_input("🔢 Inventarski Broj (za karton):", "").strip()
+izabrani_broj = st.sidebar.text_input("🔢 Inventarski Broj (Karton):", "").strip()
+
+# 4. POMOĆNE FUNKCIJE
+def apply_styling(df_st, active):
+    if not active or 'vazi_do' not in df_st.columns: return df_st
+    return df_st.style.applymap(lambda v: "background-color: #ff4b4b; color: white" if pd.notnull(v) and v < datetime.now().date() else "", subset=['vazi_do'])
+
+def export_to_excel(df):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Oprema')
+    return output.getvalue()
+
+# 5. GLAVNI PROGRAM
+st.title("🔍 Centralna Evidencija Opreme")
 
 try:
     df_raw = run_query("SELECT * FROM oprema")
-    
     if not df_raw.empty:
         df = df_raw.copy()
         df.columns = [c.strip().lower() for c in df.columns]
-        df = df[df['inventarni_broj'].astype(str).str.lower() != 'inventarni_broj']
-
-        # Čišćenje datuma
-        for col in ['vazi_do', 'datum_bazdarenja', 'datum_kontrole']:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
-
-        # REORGANIZACIJA KOLONA
-        fiksne_prve = ['sektor', 'vrsta_opreme', 'proizvodjac', 'naziv_proizvodjac']
-        fiksne_zadnje = ['putanja_folder', 'zadnja_lokacija', 'status', 'napomena']
-        izbaci = ['id', 'inventarni_broj', 'stampac', 'gps_koordinate', 'ima_mk', 'period_provere', 
-                  'godina_proizvodnje', 'upotreba_od', 'rel_vlaznost', 'opseg_merenja', 
-                  'radna_temperatura', 'klasa_tacnosti', 'preciznost', 'podeok', 'lokacija']
         
-        preostale = [c for c in df.columns if c not in fiksne_prve and c not in fiksne_zadnje and c not in izbaci]
-        novi_poredak = fiksne_prve + preostale + fiksne_zadnje
-        main_display = df[[c for c in novi_poredak if c in df.columns]]
+        # --- ADMIN MOD (UREĐIVANJE) ---
+        if is_admin:
+            st.info("🔓 **ADMIN MOD AKTIVAN:** Možete menjati, dodavati i brisati redove direktno u tabeli.")
+            # Koristimo data_editor za Admina
+            edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, hide_index=False, key="admin_editor")
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("💾 SAČUVAJ SVE IZMENE U SQL BAZU", use_container_width=True, type="primary"):
+                    conn = get_conn(); cur = conn.cursor()
+                    state = st.session_state["admin_editor"]
+                    try:
+                        # Brisanje redova
+                        if state['deleted_rows']:
+                            for idx in state['deleted_rows']:
+                                row_id = df.iloc[idx]['id']
+                                cur.execute("DELETE FROM oprema WHERE id = %s", (int(row_id),))
+                        # Unos/Izmena
+                        for _, row in edited_df.iterrows():
+                            sql_cols = [c for c in edited_df.columns if c != 'id']
+                            vals = [None if pd.isna(row[c]) or str(row[c]) in ['-', 'nan', 'None'] else row[c] for c in sql_cols]
+                            if not pd.isna(row.get('id')) and str(row.get('id')) != '':
+                                cur.execute(f"UPDATE oprema SET {', '.join([f'{c}=%s' for c in sql_cols])} WHERE id=%s", vals + [int(row['id'])])
+                            else:
+                                cur.execute(f"INSERT INTO oprema ({', '.join(sql_cols)}) VALUES ({', '.join(['%s']*len(sql_cols))})", vals)
+                        conn.commit(); st.success("Baza uspešno ažurirana!"); st.cache_data.clear(); st.rerun()
+                    except Exception as e: st.error(f"Greška: {e}")
+                    finally: conn.close()
+            with c2:
+                st.download_button("📥 PREUZMI EXCEL", data=export_to_excel(df), file_name="oprema.xlsx", use_container_width=True)
 
-        # Prikaz glavne tabele (Wide layout)
-        st.dataframe(apply_styling(main_display, show_colors), use_container_width=True, hide_index=True)
-        st.write("---")
+        # --- KORISNIČKI MOD (PREGLED) ---
+        else:
+            st.dataframe(apply_styling(df, show_colors), use_container_width=True, hide_index=True)
+
+        st.markdown("---")
 
         # --- MATIČNI KARTON ---
         if izabrani_broj:
             rez = df[df['inventarni_broj'].astype(str).str.strip() == izabrani_broj]
             if not rez.empty:
                 ins = rez.iloc[0]
-                st.subheader(f"📄 Karton: {ins.get('naziv_proizvodjac', '')} | {ins.get('vrsta_opreme', '')}")
-                
+                st.subheader(f"📄 Karton: {ins.get('naziv_proizvodjac', '')}")
                 t1, t2, t3, t4, t5 = st.tabs(["📋 Osnovno", "🌾 Kulture", "🛠 Servis", "📏 Etalon", "⚖ Baždarenje"])
-
+                
                 with t1:
-                    svi_potencijalni = [
-                        ("Proizvođač", "proizvodjac"), ("Model", "naziv_proizvodjac"),
-                        ("Vrsta", "vrsta_opreme"), ("Serijski br.", "seriski_broj"),
-                        ("Opseg merenja", "opseg_merenja"), ("Klasa tačnosti", "klasa_tacnosti"),
-                        ("Preciznost (d)", "preciznost"), ("Overeni podeok (e)", "podeok"),
-                        ("Radna Temperatura", "radna_temperatura"), ("Rel. Vlažnost", "rel_vlaznost"),
-                        ("Godina proizvodnje", "godina_proizvodnje"), ("U upotrebi od", "upotreba_od")
-                    ]
-                    podaci_za_prikaz = [(l, ins.get(k)) for l, k in svi_potencijalni if ima_podatak(ins.get(k))]
-                    
+                    svi = [("Vrsta", "vrsta_opreme"), ("Model", "naziv_proizvodjac"), ("Serijski", "seriski_broj"), ("Sektor", "sektor")]
                     cols = st.columns(4)
-                    for i, (label, val) in enumerate(podaci_za_prikaz):
-                        with cols[i % 4]:
-                            st.write(f"**{label}**")
-                            st.info(val)
-
+                    for i, (l, k) in enumerate(svi):
+                        with cols[i%4]: st.metric(l, ins.get(k, "-"))
+                
                 with t2:
-                    m_name = str(ins.get('naziv_proizvodjac', '')).strip()
-                    df_k = run_query("SELECT kultura, opseg_vlage, protein FROM kulture_opsezi WHERE LOWER(naziv_proizvodjac) LIKE %s", (f"%{m_name.lower()}%",))
-                    if not df_k.empty:
-                        st.table(df_k.fillna("-"))
-                    else:
-                        st.warning("Nema podataka o kulturama.")
+                    m_n = str(ins.get('naziv_proizvodjac', '')).strip()
+                    dk = run_query("SELECT kultura, opseg_vlage FROM kulture_opsezi WHERE LOWER(naziv_proizvodjac) LIKE %s", (f"%{m_n.lower()}%",))
+                    st.table(dk) if not dk.empty else st.warning("Nema kultura.")
                 
                 with t3:
-                    df_s = run_query("SELECT datum_servisa, broj_zapisnika, opis_intervencije FROM istorija_servisa WHERE inventarni_broj = %s", (izabrani_broj,))
-                    if not df_s.empty:
-                        st.dataframe(df_s, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("Nema servisa.")
+                    ds = run_query("SELECT datum_servisa, opis_intervencije FROM istorija_servisa WHERE inventarni_broj = %s", (izabrani_broj,))
+                    st.dataframe(ds, use_container_width=True) if not ds.empty else st.info("Nema servisa.")
                 
                 with t4:
-                    df_e = run_query("SELECT datum_etaloniranja, broj_sertifikata, vazi_do FROM istorija_etaloniranja WHERE inventarni_broj = %s", (izabrani_broj,))
-                    if not df_e.empty:
-                        st.dataframe(df_e, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("Nema etaloniranja.")
-                
+                    de = run_query("SELECT datum_etaloniranja, vazi_do FROM istorija_etaloniranja WHERE inventarni_broj = %s", (izabrani_broj,))
+                    st.dataframe(de, use_container_width=True) if not de.empty else st.info("Nema etaloniranja.")
+
                 with t5:
-                    df_b = run_query("SELECT datum_bazdarenja, broj_uverenja, vazi_do FROM istorija_bazdarenja WHERE inventarni_broj = %s", (izabrani_broj,))
-                    if not df_b.empty:
-                        st.dataframe(df_b, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("Nema baždarenja.")
+                    db = run_query("SELECT datum_bazdarenja, vazi_do FROM istorija_bazdarenja WHERE inventarni_broj = %s", (izabrani_broj,))
+                    st.dataframe(db, use_container_width=True) if not db.empty else st.info("Nema baždarenja.")
             else:
-                st.sidebar.error("Instrument nije pronađen!")
-    else:
-        st.warning("Baza podataka je prazna.")
-except Exception as e:
-    st.error(f"Sistemska greška: {e}")
+                st.error("Instrument nije pronađen!")
+
+    else: st.warning("Baza je prazna.")
+except Exception as e: st.error(f"Sistemska greška: {e}")
