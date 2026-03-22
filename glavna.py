@@ -1,56 +1,55 @@
 import streamlit as st
 from db_utils import run_query
 
-# 1. OSNOVNA KONFIGURACIJA
-st.set_page_config(page_title="BV Web App - Login", layout="centered", page_icon="🏢")
+# 1. KONFIGURACIJA
+st.set_page_config(page_title="BV Login", layout="centered", page_icon="🏢")
 
-# Inicijalizacija session_state
+# Inicijalizacija sesije
 if 'ulogovan' not in st.session_state:
     st.session_state['ulogovan'] = False
-if 'is_premium' not in st.session_state:
-    st.session_state['is_premium'] = 0
 
-# --- 2. DEFINISANJE STRANICA (MORA BITI OVDE NA VRHU) ---
-def prikazi_pocetnu():
-    st.title("👋 Dobrodošli u BV Web App")
-    st.write("Sistem za centralnu evidenciju opreme.")
-    st.markdown("---")
-
-    if st.session_state['ulogovan']:
-        st.success(f"Prijavljeni ste kao: **{st.session_state.get('ime_korisnika', '')}**")
-        if st.button("🚀 UĐI U EVIDENCIJU OPREME", use_container_width=True):
-            st.switch_page(p_oprema) # Sada p_oprema sigurno postoji
+# Funkcija koja radi proveru i LOGOVANJE
+def izvrsi_prijava():
+    u = st.session_state.korisnik_input
+    p = st.session_state.lozinka_input
+    
+    # Provera u bazi (tabela zaposleni)
+    res = run_query("SELECT ime_prezime, is_premium FROM zaposleni WHERE korisnicko_ime = %s AND lozinka = %s", (u, p))
+    
+    if not res.empty:
+        st.session_state['ulogovan'] = True
+        st.session_state['is_premium'] = int(res.iloc[0]['is_premium'])
+        st.session_state['ime_korisnika'] = res.iloc[0]['ime_prezime']
+        # KLJUČ: Odmah prebacujemo na Opremu
+        st.switch_page(p_oprema)
     else:
-        col1, col2, col3 = st.columns([1,2,1])
-        with col2:
-            st.subheader("🔐 Prijava")
-            user = st.text_input("Korisničko ime:", key="user_input")
-            pwd = st.text_input("Lozinka:", type="password", key="pwd_input")
-            
-            if st.button("PRIJAVI SE", use_container_width=True, type="primary"):
-                # Provera u bazi
-                res = run_query("SELECT ime_prezime, is_premium FROM zaposleni WHERE korisnicko_ime = %s AND lozinka = %s", (user, pwd))
-                if not res.empty:
-                    st.session_state['ulogovan'] = True
-                    st.session_state['is_premium'] = int(res.iloc[0]['is_premium'])
-                    st.session_state['ime_korisnika'] = res.iloc[0]['ime_prezime']
-                    st.success("Uspešna prijava!")
-                    st.rerun()
-                else:
-                    st.error("Pogrešni podaci!")
+        st.error("❌ Pogrešno korisničko ime ili lozinka!")
 
-# Kreiranje objekata stranica
-p_pocetna = st.Page(prikazi_pocetnu, title="Početna", icon="🏠", default=True)
+# 2. DEFINISANJE STRANICA (Mora biti pre bilo kakve akcije)
 p_oprema = st.Page("pages/oprema.py", title="Oprema", icon="🔍")
 p_mapa = st.Page("pages/mapa_opreme.py", title="Mapa", icon="🗺️")
+# Početna je funkcija da bi izbegli fajl-petlju
+def prazna_pocetna(): pass
+p_home = st.Page(prazna_pocetna, default=True)
 
-# 3. NAVIGACIJA I SAKRIVANJE SIDEBARA
-st.markdown("<style>[data-testid='stSidebar'] {display:none;}</style>", unsafe_allow_html=True)
-
-# Ako je ulogovan, dozvoli navigaciju, inače samo početna
-if st.session_state['ulogovan']:
-    pg = st.navigation([p_pocetna, p_oprema, p_mapa], position="hidden")
+# 3. LOGIKA PRIKAZA
+if not st.session_state['ulogovan']:
+    # Sakrivanje sidebara na login ekranu
+    st.markdown("<style>[data-testid='stSidebar'] {display:none;}</style>", unsafe_allow_html=True)
+    
+    st.title("👋 BV Web App")
+    st.write("Unesite podatke za pristup sistemu evidencije.")
+    st.markdown("---")
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.text_input("Korisničko ime:", key="korisnik_input")
+        # on_change hvata taster ENTER
+        st.text_input("Lozinka:", type="password", key="lozinka_input", on_change=izvrsi_prijava)
+        
+        if st.button("🚀 PRIJAVI SE", use_container_width=True, type="primary"):
+            izvrsi_prijava()
 else:
-    pg = st.navigation([p_pocetna], position="hidden")
-
-pg.run()
+    # Ako je korisnik ulogovan, navigacija mu dozvoljava ulaz
+    pg = st.navigation([p_oprema, p_mapa])
+    pg.run()
