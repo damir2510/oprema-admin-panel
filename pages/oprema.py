@@ -1,20 +1,17 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-# Uvozimo funkciju iz db_utils.py
 from db_utils import run_query 
 
-# --- DEFINICIJA STRANICA ZA NAVIGACIJU (Da switch_page radi unutar navigation sistema) ---
-p_mapa = st.Page("pages/mapa_opreme.py")
-p_admin = st.Page("pages/oprema_admin.py")
-
-# --- NAVIGACIJA SIDEBAR ---
+# --- NAVIGACIJA (BEZ st.Page definicija!) ---
 st.sidebar.header("🚀 Navigacija")
+
+# Koristimo direktne string putanje koje Streamlit već poznaje iz glavna.py
 if st.sidebar.button("🗺️ Mapa opreme", use_container_width=True):
-    st.switch_page(p_mapa)
+    st.switch_page("pages/mapa_opreme.py")
 
 if st.sidebar.button("🛠️ Admin Panel", use_container_width=True):
-    st.switch_page(p_admin)
+    st.switch_page("pages/oprema_admin.py")
 
 st.sidebar.markdown("---")
 
@@ -47,7 +44,6 @@ try:
     if not df_raw.empty:
         df = df_raw.copy()
         df.columns = [c.strip().lower() for c in df.columns]
-        # Filtriranje zaglavlja ako je slučajno u bazi
         df = df[df['inventarni_broj'].astype(str).str.lower() != 'inventarni_broj']
 
         # Čišćenje datuma
@@ -86,7 +82,7 @@ try:
                         ("Opseg merenja", "opseg_merenja"), ("Klasa tačnosti", "klasa_tacnosti"),
                         ("Preciznost (d)", "preciznost"), ("Overeni podeok (e)", "podeok"),
                         ("Radna Temperatura", "radna_temperatura"), ("Rel. Vlažnost", "rel_vlaznost"),
-                        ("U upotrebi od", "upotreba_od")
+                        ("Godina proizvodnje", "godina_proizvodnje"), ("U upotrebi od", "upotreba_od")
                     ]
                     podaci_za_prikaz = [(l, ins.get(k)) for l, k in svi_potencijalni if ima_podatak(ins.get(k))]
                     
