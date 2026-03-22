@@ -3,9 +3,10 @@ import pandas as pd
 import io
 from db_utils import get_conn, run_query
 
-# --- 1. KONFIGURACIJA (Široki ekran i sakrivanje menija) ---
+# --- 1. KONFIGURACIJA ---
 st.set_page_config(page_title="Master Admin Panel", layout="wide")
 
+# CSS za sakrivanje standardne navigacije
 st.markdown("""
     <style>
         [data-testid="stSidebarNav"] ul { display: none; }
@@ -57,52 +58,66 @@ def export_to_excel_clean(df, sheet_name):
 if st.sidebar.text_input("🔐 Lozinka:", type="password") == "damir123":
     st.title("⚙️ Master Admin Panel")
     
-    sve_tabele = ["oprema", "istorija_bazdarenja", "kulture_opsezi", "istorija_servisa", "istorija_etaloniranja", "istorija_provera", "zaposleni",]
+    sve_tabele = ["oprema", "istorija_bazdarenja", "kulture_opsezi", "istorija_servisa", "istorija_etaloniranja", "istorija_provera", "zaposleni"]
     izabrana_tabela = st.selectbox("Izaberi tabelu za rad:", sve_tabele, key="main_sel")
 
-    t1, t2, t3 = st.tabs(["📝 Direktan unos & Pretraga", "📥 Excel Alati", "🗑️ Brisanje"])
+    t1, t2 = st.tabs(["📝 Direktan rad sa podacima", "📥 Excel Alati"])
 
+    # --- TAB 1: UNOS, IZMENA I BRISANJE ---
     with t1:
-        df_all = get_table_structure(izabrana_tabela)
+        df_db = get_table_structure(izabrana_tabela)
         
-        st.info("💡 Tabela ispod se širi na ceo ekran. Koristite pretragu za brzi pronalazak.")
+        st.info("💡 **Uputstvo:** Za brisanje označite red i pritisnite 'Delete' na tastaturi. Za izmenu samo kucajte u polje.")
         col_f1, col_f2 = st.columns([1, 2])
         
         with col_f1:
             sektori = ["SVI"]
-            if 'sektor' in df_all.columns:
-                sektori += sorted(df_all['sektor'].dropna().unique().tolist())
+            if 'sektor' in df_db.columns:
+                sektori += sorted(df_db['sektor'].dropna().unique().tolist())
             izabrani_sektor = st.selectbox("📍 Filtriraj po sektoru:", sektori)
             
         with col_f2:
-            search_query = st.text_input("🔍 Brza pretraga (Inv. broj, Naziv, Proizvođač...):", "").lower()
+            search_query = st.text_input("🔍 Pretraži (Model, Inv. br, Naziv...):", "").lower()
 
-        df_filtered = df_all.copy()
-        if izabrani_sektor != "SVI" and 'sektor' in df_filtered.columns:
-            df_filtered = df_filtered[df_filtered['sektor'] == izabrani_sektor]
+        # Filtriranje za prikaz
+        df_display = df_db.copy()
+        if izabrani_sektor != "SVI" and 'sektor' in df_display.columns:
+            df_display = df_display[df_display['sektor'] == izabrani_sektor]
             
         if search_query:
-            mask = df_filtered.astype(str).apply(lambda x: x.str.lower().str.contains(search_query)).any(axis=1)
-            df_filtered = df_filtered[mask]
+            mask = df_display.astype(str).apply(lambda x: x.str.lower().str.contains(search_query)).any(axis=1)
+            df_display = df_display[mask]
 
-        st.write(f"Pronađeno stavki: **{len(df_filtered)}**")
-        
-        # Tabela sa podacima - maksimalna širina
+        # Tabela - KLJUČ JE num_rows="dynamic"
+        editor_key = f"editor_{izabrana_tabela}"
         edited_df = st.data_editor(
-            df_filtered, 
+            df_display, 
             num_rows="dynamic", 
             use_container_width=True, 
-            hide_index=True, 
-            key=f"editor_{izabrana_tabela}"
+            hide_index=False, 
+            key=editor_key
         )
         
-        if st.button("💾 SAČUVAJ IZMENE U BAZU", use_container_width=True):
+        if st.button("💾 SAČUVAJ SVE IZMENE (Unos, Izmene i Brisanje)", use_container_width=True, type="primary"):
+            state = st.session_state[editor_key]
             conn = get_conn()
             cur = conn.cursor()
+            
             try:
+                # 1. BRISANJE (Proveravamo state editora)
+                if 'deleted_rows' in state and state['deleted_rows']:
+                    for row_idx in state['deleted_rows']:
+                        # Pronalazimo ID originalnog reda pre brisanja iz prikaza
+                        row_id = df_display.iloc[row_idx]['id']
+                        if not pd.isna(row_id):
+                            cur.execute(f"DELETE FROM {izabrana_tabela} WHERE id = %s", (int(row_id),))
+
+                # 2. UNOS I IZMENE
+                # Prolazimo kroz trenutno stanje tabele
                 for idx, row in edited_df.iterrows():
                     sql_cols = [c for c in edited_df.columns if c != 'id']
                     
+                    # Logika za automatski Foreign Key (ako postoji kolona inventarni_broj)
                     if izabrana_tabela != "oprema" and "inventarni_broj" in row:
                         inv = str(row['inventarni_broj']).strip()
                         cur.execute("SELECT id FROM oprema WHERE inventarni_broj = %s", (inv,))
@@ -112,23 +127,27 @@ if st.sidebar.text_input("🔐 Lozinka:", type="password") == "damir123":
                     
                     vals = [None if pd.isna(row[c]) or str(row[c]) in ['-', 'nan', 'None'] else row[c] for c in sql_cols]
                     
-                    if not pd.isna(row.get('id')) and str(row.get('id')) != '':
-                        cur.execute(f"UPDATE {izabrana_tabela} SET {', '.join([f'{c}=%s' for c in sql_cols])} WHERE id=%s", vals + [int(row['id'])])
+                    # Ako red ima ID, radimo UPDATE, ako nema radimo INSERT
+                    row_id = row.get('id')
+                    if not pd.isna(row_id) and str(row_id) != '':
+                        cur.execute(f"UPDATE {izabrana_tabela} SET {', '.join([f'{c}=%s' for c in sql_cols])} WHERE id=%s", vals + [int(row_id)])
                     else:
                         cur.execute(f"INSERT INTO {izabrana_tabela} ({', '.join(sql_cols)}) VALUES ({', '.join(['%s']*len(sql_cols))})", vals)
                 
                 conn.commit()
-                st.success("Baza uspešno ažurirana!")
+                st.success(f"Baza '{izabrana_tabela}' je uspešno ažurirana!")
                 st.cache_data.clear()
+                st.rerun()
             except Exception as e:
-                st.error(f"Greška: {e}")
+                st.error(f"Greška prilikom čuvanja: {e}")
             finally:
                 conn.close()
 
+    # --- TAB 2: EXCEL ALATI ---
     with t2:
         c1, c2 = st.columns(2)
         with c1:
-            st.write("### 📤 Izvoz")
+            st.write("### 📤 Izvoz tabele")
             df_exp = get_table_structure(izabrana_tabela)
             st.download_button(
                 label=f"Preuzmi {izabrana_tabela}.xlsx",
@@ -138,11 +157,11 @@ if st.sidebar.text_input("🔐 Lozinka:", type="password") == "damir123":
                 use_container_width=True
             )
         with c2:
-            st.write("### 📥 Uvoz")
-            up_file = st.file_uploader("Otpremite Excel", type=['xlsx'])
+            st.write("### 📥 Uvoz podataka")
+            up_file = st.file_uploader("Ubaci Excel fajl", type=['xlsx'])
             if up_file:
                 df_u = pd.read_excel(up_file, engine='openpyxl').fillna('-')
-                if st.button("🚀 POKRENI SINHRONIZACIJU", use_container_width=True):
+                if st.button("🚀 SINHRONIZUJ IZ EXCELA", use_container_width=True):
                     conn = get_conn(); cur = conn.cursor()
                     try:
                         cur.execute(f"DESCRIBE {izabrana_tabela}"); sql_cols = [r['Field'] for r in cur.fetchall()]
@@ -154,17 +173,8 @@ if st.sidebar.text_input("🔐 Lozinka:", type="password") == "damir123":
                                 cur.execute(f"UPDATE {izabrana_tabela} SET {', '.join([f'{c}=%s' for c in cols])} WHERE id=%s", vals + [int(row_id)])
                             else:
                                 cur.execute(f"INSERT INTO {izabrana_tabela} ({', '.join(cols)}) VALUES ({', '.join(['%s']*len(cols))})", vals)
-                        conn.commit(); st.success("Uvoz završen!"); st.cache_data.clear()
-                    except Exception as e: st.error(f"Greška: {e}")
+                        conn.commit(); st.success("Sinhronizacija završena!"); st.cache_data.clear(); st.rerun()
+                    except Exception as e: st.error(f"Greška kod uvoza: {e}")
                     finally: conn.close()
-
-    with t3:
-        ident = "inventarni_broj" if izabrana_tabela == "oprema" else "id"
-        val_del = st.text_input(f"Unesi {ident} za brisanje:")
-        if st.button("❌ TRAJNO OBRIŠI", use_container_width=True):
-            if val_del:
-                conn = get_conn(); cur = conn.cursor()
-                cur.execute(f"DELETE FROM {izabrana_tabela} WHERE {ident} = %s", (val_del,))
-                conn.commit(); conn.close(); st.warning("Podatak obrisan."); st.cache_data.clear(); st.rerun()
 else:
-    st.info("Prijavite se lozinkom za pristup admin panelu.")
+    st.info("Unesite lozinku u sidebaru za pristup admin opcijama.")
