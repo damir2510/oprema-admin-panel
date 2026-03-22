@@ -57,7 +57,7 @@ def export_to_excel_clean(df, sheet_name):
 if st.sidebar.text_input("🔐 Lozinka:", type="password") == "damir123":
     st.title("⚙️ Master Admin Panel")
     
-    sve_tabele = ["oprema", "istorija_bazdarenja", "kulture_opsezi", "istorija_servisa", "istorija_etaloniranja", "istorija_provera"]
+    sve_tabele = ["oprema", "istorija_bazdarenja", "kulture_opsezi", "istorija_servisa", "istorija_etaloniranja", "istorija_provera", "zaposleni",]
     izabrana_tabela = st.selectbox("Izaberi tabelu za rad:", sve_tabele, key="main_sel")
 
     t1, t2, t3 = st.tabs(["📝 Direktan unos & Pretraga", "📥 Excel Alati", "🗑️ Brisanje"])
