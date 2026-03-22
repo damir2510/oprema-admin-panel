@@ -6,15 +6,6 @@ from db_utils import get_conn, run_query
 
 # --- 1. NAVIGACIJA (Dodato dugme za vracanje) ---
 
-
-st.sidebar.header("🚀 Navigacija")
-if st.sidebar.button("🗺️ Mapa opreme", use_container_width=True):
-    st.switch_page("pages/mapa_opreme.py")
-
-if st.sidebar.button("🛠️ Admin Panel", use_container_width=True):
-    st.switch_page("pages/oprema_admin.py")
-st.sidebar.markdown("---")
-
 # 2. POMOĆNA FUNKCIJA ZA STRUKTURU
 def get_table_structure(tabela):
     conn = get_conn()
