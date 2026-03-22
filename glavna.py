@@ -13,17 +13,17 @@ def izvrsi_prijava():
     u = st.session_state.korisnik_input
     p = st.session_state.lozinka_input
     
-    # Provera u bazi (tabela zaposleni)
     res = run_query("SELECT ime_prezime, is_premium FROM zaposleni WHERE korisnicko_ime = %s AND lozinka = %s", (u, p))
     
     if not res.empty:
         st.session_state['ulogovan'] = True
         st.session_state['is_premium'] = int(res.iloc[0]['is_premium'])
         st.session_state['ime_korisnika'] = res.iloc[0]['ime_prezime']
-        # KLJUČ: Odmah prebacujemo na Opremu
+        # SAMO switch_page, BEZ st.rerun()
         st.switch_page(p_oprema)
     else:
         st.error("❌ Pogrešno korisničko ime ili lozinka!")
+
 
 # 2. DEFINISANJE STRANICA (Mora biti pre bilo kakve akcije)
 p_oprema = st.Page("pages/oprema.py", title="Oprema", icon="🔍")
