@@ -2,22 +2,26 @@ import streamlit as st
 import pandas as pd
 import folium
 from streamlit_folium import st_folium
-# Uvozimo funkcije iz zajedničkog db_utils fajla
 from db_utils import run_query
 
-# --- 1. NAVIGACIJA ---
+# --- 1. DEFINICIJA NAVIGACIJE (Dosledno korišćenje objekata) ---
+p_oprema = st.Page("pages/oprema.py")
+p_admin = st.Page("pages/oprema_admin.py")
+
 st.sidebar.header("🚀 Navigacija")
-if st.sidebar.button("📋 Pregled Opreme", use_container_width=True):
-    st.switch_page("pages/oprema.py")
+
+# Koristimo objekte p_oprema i p_admin umesto string putanja
+if st.sidebar.button("⬅️ Nazad na Pregled", use_container_width=True):
+    st.switch_page(p_oprema)
 
 if st.sidebar.button("🛠️ Admin Panel", use_container_width=True):
-    st.switch_page("pages/oprema_admin.py")
+    st.switch_page(p_admin)
 
 st.sidebar.markdown("---")
 
 st.title("📍 Interaktivna Mapa Opreme")
 
-# --- 2. POVLAČENJE PODATAKA (Preko db_utils) ---
+# --- 2. POVLAČENJE PODATAKA ---
 query = """
 SELECT inventarni_broj, naziv_proizvodjac, gps_koordinate, 
        trenutni_radnik, status, zadnja_lokacija 
@@ -26,13 +30,12 @@ FROM oprema
 df = run_query(query)
 
 if not df.empty:
-    # --- 3. OBRADA GPS KOORDINATA ---
     locations = []
     for _, row in df.iterrows():
         gps = row.get('gps_koordinate')
         if gps and "," in str(gps):
             try:
-                # Čistimo razmake i delimo koordinate
+                # Popravljeno: uzimanje elemenata iz split liste
                 parts = str(gps).replace(' ', '').split(',')
                 lat, lon = float(parts[0]), float(parts[1])
                 
@@ -47,14 +50,13 @@ if not df.empty:
                 continue
 
     if locations:
-        # Centriramo mapu na prvu lokaciju ili fiksno na Srbiju (44.8, 20.4)
+        # Centriranje na prvu lokaciju
         m = folium.Map(location=[locations[0]['lat'], locations[0]['lon']], zoom_start=8)
 
         for loc in locations:
-            # Boja čiode: zelena za 'u radu' ili 'ispravno', crvena za ostalo
+            # Boja čiode
             color = 'green' if any(x in loc['status'] for x in ['rad', 'ispravno', 'u radu']) else 'red'
 
-            # HTML za Popup prozorčić
             popup_text = f"""
                 <div style='font-family: sans-serif; font-size: 13px;'>
                     {loc['info']} <br>
