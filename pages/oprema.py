@@ -3,10 +3,29 @@ import pandas as pd
 from datetime import datetime
 from db_utils import run_query 
 
-# --- NAVIGACIJA (BEZ st.Page definicija!) ---
-# --- NAVIGACIJA U pages/oprema.py ---
+# --- 1. KONFIGURACIJA (Široki ekran i sakrivanje menija) ---
+st.set_page_config(page_title="Evidencija Opreme", layout="wide")
 
-# 1. POMOĆNE FUNKCIJE
+st.markdown("""
+    <style>
+        [data-testid="stSidebarNav"] ul { display: none; }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- 2. DEFINICIJA STRANICA ZA NAVIGACIJU ---
+p_mapa = st.Page("pages/mapa_opreme.py")
+p_admin = st.Page("pages/oprema_admin.py")
+
+st.sidebar.header("🚀 Navigacija")
+if st.sidebar.button("🗺️ Mapa opreme", use_container_width=True):
+    st.switch_page(p_mapa)
+
+if st.sidebar.button("🛠️ Admin Panel", use_container_width=True):
+    st.switch_page(p_admin)
+
+st.sidebar.markdown("---")
+
+# 3. POMOĆNE FUNKCIJE
 def ima_podatak(val):
     return str(val).strip() not in ["", "None", "nan", "-", "0", "NoneType"]
 
@@ -53,7 +72,7 @@ try:
         novi_poredak = fiksne_prve + preostale + fiksne_zadnje
         main_display = df[[c for c in novi_poredak if c in df.columns]]
 
-        # Prikaz glavne tabele
+        # Prikaz glavne tabele - SADA PREKO CELOG EKRANA
         st.dataframe(apply_styling(main_display, show_colors), use_container_width=True, hide_index=True)
         st.write("---")
 
