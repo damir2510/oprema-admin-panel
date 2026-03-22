@@ -3,29 +3,48 @@ import pandas as pd
 from datetime import datetime
 from db_utils import run_query 
 
-# --- 1. KONFIGURACIJA (Široki ekran i sakrivanje menija) ---
-st.set_page_config(page_title="Evidencija Opreme", layout="wide")
+# --- 1. PROVERA LOGOVANJA (Sigurnosna kočnica) ---
+if not st.session_state.get('ulogovan'):
+    st.switch_page("glavna.py")
 
+# --- 2. KONFIGURACIJA ---
+st.set_page_config(page_title="Sektor Opreme", layout="wide")
+
+# CSS za sakrivanje standardnog menija
 st.markdown("""
     <style>
         [data-testid="stSidebarNav"] ul { display: none; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. DEFINICIJA STRANICA ZA NAVIGACIJU ---
+# --- 3. DEFINISANJE STRANICA ---
+p_pocetna = st.Page("glavna.py")
 p_mapa = st.Page("pages/mapa_opreme.py")
 p_admin = st.Page("pages/oprema_admin.py")
 
+# --- 4. SIDEBAR NAVIGACIJA ---
 st.sidebar.header("🚀 Navigacija")
+
+if st.sidebar.button("🏠 Početna", use_container_width=True):
+    st.switch_page(p_pocetna)
+
 if st.sidebar.button("🗺️ Mapa opreme", use_container_width=True):
     st.switch_page(p_mapa)
 
-if st.sidebar.button("🛠️ Admin Panel", use_container_width=True):
-    st.switch_page(p_admin)
+# PRIKAZ ADMIN DUGMETA SAMO ZA PREMIUM 5
+if st.session_state.get('is_premium') == 5:
+    if st.sidebar.button("🔐 Admin Panel", use_container_width=True):
+        st.switch_page(p_admin)
 
 st.sidebar.markdown("---")
 
-# 3. POMOĆNE FUNKCIJE
+# --- DUGME ZA ODJAVU ---
+if st.sidebar.button("🚪 Odjavi se", use_container_width=True, type="secondary"):
+    st.session_state['ulogovan'] = False
+    st.session_state['is_premium'] = 0
+    st.rerun()
+
+# --- 5. POMOĆNE FUNKCIJE ---
 def ima_podatak(val):
     return str(val).strip() not in ["", "None", "nan", "-", "0", "NoneType"]
 
@@ -41,7 +60,7 @@ def apply_styling(df, should_highlight):
         return ""
     return df.style.applymap(highlight_logic, subset=['vazi_do'])
 
-# --- GLAVNI SADRŽAJ ---
+# --- 6. GLAVNI SADRŽAJ ---
 st.title("🔍 Evidencija Opreme")
 
 st.sidebar.header("⚙️ Kontrole")
@@ -72,7 +91,7 @@ try:
         novi_poredak = fiksne_prve + preostale + fiksne_zadnje
         main_display = df[[c for c in novi_poredak if c in df.columns]]
 
-        # Prikaz glavne tabele - SADA PREKO CELOG EKRANA
+        # Prikaz glavne tabele (Wide layout)
         st.dataframe(apply_styling(main_display, show_colors), use_container_width=True, hide_index=True)
         st.write("---")
 
