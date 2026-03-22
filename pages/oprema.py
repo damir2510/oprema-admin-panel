@@ -13,11 +13,13 @@ st.set_page_config(page_title="Sektor Opreme", layout="wide")
 
 # Provera nivoa pristupa
 is_admin = st.session_state.get('is_premium') == 5
+ime_korisnika = st.session_state.get('ime_korisnika', 'Korisnik')
 
 # Sakrivanje standardne navigacije (rakete)
 st.markdown("""<style>[data-testid="stSidebarNav"] ul { display: none; }</style>""", unsafe_allow_html=True)
 
 # 3. SIDEBAR NAVIGACIJA I KONTROLE
+st.sidebar.markdown(f"👤 Prijavljeni ste kao: **{ime_korisnika}**")
 st.sidebar.header("🚀 Navigacija")
 p_pocetna = st.Page("glavna.py")
 p_mapa = st.Page("pages/mapa_opreme.py")
@@ -30,6 +32,7 @@ if st.sidebar.button("🗺️ Mapa lokacija", use_container_width=True):
 st.sidebar.markdown("---")
 if st.sidebar.button("🚪 Odjavi se", use_container_width=True, type="secondary"):
     st.session_state['ulogovan'] = False
+    st.session_state['is_premium'] = 0
     st.rerun()
 
 st.sidebar.markdown("---")
@@ -57,10 +60,12 @@ try:
         df = df_raw.copy()
         df.columns = [c.strip().lower() for c in df.columns]
         
+        # Filtriranje onih koji nisu pravi podaci (ako se zaglavlje ponovilo)
+        df = df[df['inventarni_broj'].astype(str).str.lower() != 'inventarni_broj']
+
         # --- ADMIN MOD (UREĐIVANJE) ---
         if is_admin:
-            st.info("🔓 **ADMIN MOD AKTIVAN:** Možete menjati, dodavati i brisati redove direktno u tabeli.")
-            # Koristimo data_editor za Admina
+            st.info(f"🔓 **ADMIN MOD AKTIVAN:** Dobrodošli {ime_korisnika}. Ovde možete menjati bazu.")
             edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, hide_index=False, key="admin_editor")
             
             c1, c2 = st.columns(2)
@@ -83,13 +88,14 @@ try:
                             else:
                                 cur.execute(f"INSERT INTO oprema ({', '.join(sql_cols)}) VALUES ({', '.join(['%s']*len(sql_cols))})", vals)
                         conn.commit(); st.success("Baza uspešno ažurirana!"); st.cache_data.clear(); st.rerun()
-                    except Exception as e: st.error(f"Greška: {e}")
+                    except Exception as e: st.error(f"Greška prilikom snimanja: {e}")
                     finally: conn.close()
             with c2:
                 st.download_button("📥 PREUZMI EXCEL", data=export_to_excel(df), file_name="oprema.xlsx", use_container_width=True)
 
-        # --- KORISNIČKI MOD (PREGLED) ---
+        # --- KORISNIČKI MOD (SAMO PREGLED) ---
         else:
+            st.write(f"👋 Dobrodošli, {ime_korisnika}. Pregledate listu opreme.")
             st.dataframe(apply_styling(df, show_colors), use_container_width=True, hide_index=True)
 
         st.markdown("---")
@@ -98,6 +104,7 @@ try:
         if izabrani_broj:
             rez = df[df['inventarni_broj'].astype(str).str.strip() == izabrani_broj]
             if not rez.empty:
+                # Koristimo iloc[0] da dobijemo konkretan red
                 ins = rez.iloc[0]
                 st.subheader(f"📄 Karton: {ins.get('naziv_proizvodjac', '')}")
                 t1, t2, t3, t4, t5 = st.tabs(["📋 Osnovno", "🌾 Kulture", "🛠 Servis", "📏 Etalon", "⚖ Baždarenje"])
@@ -106,26 +113,32 @@ try:
                     svi = [("Vrsta", "vrsta_opreme"), ("Model", "naziv_proizvodjac"), ("Serijski", "seriski_broj"), ("Sektor", "sektor")]
                     cols = st.columns(4)
                     for i, (l, k) in enumerate(svi):
-                        with cols[i%4]: st.metric(l, ins.get(k, "-"))
+                        val = ins.get(k, "-")
+                        with cols[i%4]: st.metric(l, val if pd.notnull(val) else "-")
                 
                 with t2:
                     m_n = str(ins.get('naziv_proizvodjac', '')).strip()
                     dk = run_query("SELECT kultura, opseg_vlage FROM kulture_opsezi WHERE LOWER(naziv_proizvodjac) LIKE %s", (f"%{m_n.lower()}%",))
-                    st.table(dk) if not dk.empty else st.warning("Nema kultura.")
+                    if not dk.empty: st.table(dk)
+                    else: st.warning("Nema definisanih kultura za ovaj model.")
                 
                 with t3:
                     ds = run_query("SELECT datum_servisa, opis_intervencije FROM istorija_servisa WHERE inventarni_broj = %s", (izabrani_broj,))
-                    st.dataframe(ds, use_container_width=True) if not ds.empty else st.info("Nema servisa.")
+                    if not ds.empty: st.dataframe(ds, use_container_width=True, hide_index=True)
+                    else: st.info("Nema zabeleženih servisa.")
                 
                 with t4:
                     de = run_query("SELECT datum_etaloniranja, vazi_do FROM istorija_etaloniranja WHERE inventarni_broj = %s", (izabrani_broj,))
-                    st.dataframe(de, use_container_width=True) if not de.empty else st.info("Nema etaloniranja.")
+                    if not de.empty: st.dataframe(de, use_container_width=True, hide_index=True)
+                    else: st.info("Nema podataka o etaloniranju.")
 
                 with t5:
                     db = run_query("SELECT datum_bazdarenja, vazi_do FROM istorija_bazdarenja WHERE inventarni_broj = %s", (izabrani_broj,))
-                    st.dataframe(db, use_container_width=True) if not db.empty else st.info("Nema baždarenja.")
+                    if not db.empty: st.dataframe(db, use_container_width=True, hide_index=True)
+                    else: st.info("Nema podataka o baždarenju.")
             else:
-                st.error("Instrument nije pronađen!")
+                st.sidebar.error("Instrument nije pronađen!")
 
-    else: st.warning("Baza je prazna.")
-except Exception as e: st.error(f"Sistemska greška: {e}")
+    else: st.warning("Baza podataka je prazna.")
+except Exception as e: 
+    st.error(f"Sistemska greška: {e}")
