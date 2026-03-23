@@ -11,15 +11,34 @@ from reportlab.lib import colors
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-# 1. KONFIGURACIJA STRANE
+# 1. KONFIGURACIJA STRANE I STILIZACIJA (ARIAL)
 st.set_page_config(page_title="Evidencija Opreme", layout="wide")
 
-# REGISTRACIJA FONTA ZA NAŠA SLOVA (Obavezno ubaci arial.ttf na GitHub)
+# CSS za promenu fonta cele aplikacije na ekranu (Arial)
+st.markdown("""
+    <style>
+        html, body, [class*="st-"], .stMarkdown, .stTable, .stDataFrame {
+            font-family: 'Arial', sans-serif !important;
+        }
+        h1, h2, h3, h4 {
+            font-family: 'Arial', sans-serif !important;
+            font-weight: bold;
+        }
+        /* Smanjivanje fonta za info boxove u kartonu */
+        .stAlert {
+            padding: 0.5rem;
+            margin-bottom: 0rem;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# REGISTRACIJA FONTA ZA PDF (Pazi na veliko slovo Arial.ttf sa GitHuba)
 try:
-    pdfmetrics.registerFont(TTFont('Serbian', 'arial.ttf'))
+    pdfmetrics.registerFont(TTFont('Serbian', 'Arial.ttf'))
     FONT_NAME = 'Serbian'
-except:
+except Exception as e:
     FONT_NAME = 'Helvetica'
+    # st.sidebar.warning(f"Font Arial.ttf nije pronađen: {e}")
 
 # SIGURNOSNA PROVERA
 if 'ulogovan' not in st.session_state or not st.session_state['ulogovan']:
@@ -51,7 +70,7 @@ if is_admin:
     izbor_prikaza = st.sidebar.selectbox("Izaberi tabelu za rad:", list(tabela_opcije.keys()))
     izabrana_tabela = tabela_opcije[izbor_prikaza]
 
-    # DUGME ZA IZVOZ ODMAH ISPOD SELEKTORA
+    # IZVOZ EXCEL ODMAH ISPOD SELEKTORA
     df_za_exp = run_query(f"SELECT * FROM {izabrana_tabela}")
     if not df_za_exp.empty:
         buffer_ex = io.BytesIO()
@@ -79,7 +98,7 @@ if st.sidebar.button("🗺️ Otvori Mapu", use_container_width=True):
 
 if st.sidebar.button("🚪 Odjavi se", use_container_width=True):
     st.session_state['ulogovan'] = False
-    st.rerun() # Sigurnija opcija za Railway/Render
+    st.rerun()
 
 izabrani_broj = st.sidebar.text_input("🔢 Inventarski br. (za KARTON):", "").strip()
 
@@ -98,8 +117,6 @@ def generisi_pdf(ins, ds, de, db):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4)
     styles = getSampleStyleSheet()
-    
-    # Stilovi sa podrškom za font
     s_normal = styles['Normal']; s_normal.fontName = FONT_NAME
     s_title = styles['Title']; s_title.fontName = FONT_NAME
     s_h2 = styles['Heading2']; s_h2.fontName = FONT_NAME
@@ -110,7 +127,6 @@ def generisi_pdf(ins, ds, de, db):
     elements.append(Paragraph(f"Izveštaj generisan: {datetime.now().strftime('%d.%m.%Y.')}", s_normal))
     elements.append(Spacer(1, 20))
 
-    # Osnovni podaci - samo popunjeni
     elements.append(Paragraph("1. OSNOVNI PODACI", s_h2))
     podaci_lista = []
     detalji_pdf = [
@@ -130,11 +146,9 @@ def generisi_pdf(ins, ds, de, db):
         t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('FONTNAME', (0,0), (-1,-1), FONT_NAME)]))
         elements.append(t)
 
-    # Istorija (Vraćen kompletan ispis)
     sekcije = [("2. SERVISI", ds), ("3. ETALONIRANJA", de), ("4. BAŽDARENJA", db)]
     for naslov, df_sec in sekcije:
-        elements.append(Spacer(1, 15))
-        elements.append(Paragraph(naslov, s_h2))
+        elements.append(Spacer(1, 15)); elements.append(Paragraph(naslov, s_h2))
         if not df_sec.empty:
             data = [df_sec.columns.to_list()] + df_sec.values.tolist()
             t_sec = Table(data, hAlign='LEFT')
@@ -155,12 +169,11 @@ try:
         df = df_raw.copy()
         df.columns = [c.strip().lower() for c in df.columns]
         
-        # Čišćenje datuma (samo datum bez vremena)
         for col in df.columns:
             if 'datum' in col or 'vazi_do' in col or 'upotreba_od' in col:
                 df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
 
-        # REORGANIZACIJA KOLONA ZA TABELU
+        # REDOSLED KOLONA
         cols = list(df.columns)
         if 'proizvodjac' in cols and 'naziv_proizvodjac' in cols:
             cols.insert(cols.index('naziv_proizvodjac'), cols.pop(cols.index('proizvodjac')))
@@ -168,14 +181,14 @@ try:
             if c_end in cols: cols.append(cols.pop(cols.index(c_end)))
         df = df[cols]
 
-        # SAKRIVANJE KOLONA IZ PRIKAZA (Ali ostaju u df za Karton)
+        # SAKRIVANJE KOLONA IZ TABELE (Ali ostaju u df za Karton)
         za_izbacivanje = ['id', 'datum_bazdarenja', 'ima_mk', 'gps_koordinate', 'radna_temperatura', 'rel_vlaznost', 'godina_proizvodnje', 'opseg_merenja', 'klasa_tacnosti', 'preciznost', 'podeok', 'upotreba_od', 'period_provere', 'bar_kod', 'stampac', 'status', 'zadnja_lokacija']
         df_prikaz = df.drop(columns=[c for c in za_izbacivanje if c in df.columns])
         if 'inventarni_broj' in df_prikaz.columns:
             df_prikaz = df_prikaz.rename(columns={'inventarni_broj': 'In. broj'})
 
         # PRETRAGA IZNAD TABELE
-        pretraga = st.text_input("🔍 Pretraži tabelu (uneti bilo koji podatak):", "").lower()
+        pretraga = st.text_input("", placeholder="🔍 Brza pretraga po bilo kom polju...", label_visibility="collapsed").lower()
         if pretraga:
             df_prikaz = df_prikaz[df_prikaz.astype(str).apply(lambda x: x.str.lower().str.contains(pretraga)).any(axis=1)]
 
@@ -192,46 +205,48 @@ try:
             if not rez.empty:
                 ins = rez.iloc[0]
                 
-                # Istorija za tabove i PDF
+                # Sakupljanje istorije
                 ds = run_query(f"SELECT datum_servisa, broj_zapisnika, opis_intervencije FROM istorija_servisa WHERE inventarni_broj = '{izabrani_broj}'")
                 de = run_query(f"SELECT datum_etaloniranja, vazi_do, broj_sertifikata FROM istorija_etaloniranja WHERE inventarni_broj = '{izabrani_broj}'")
                 db = run_query(f"SELECT datum_bazdarenja, vazi_do, broj_uverenja FROM istorija_bazdarenja WHERE inventarni_broj = '{izabrani_broj}'")
                 
-                c_kart_1, c_kart_2 = st.columns([3, 1])
-                with c_kart_1:
+                c_head1, c_head2 = st.columns([3, 1])
+                with c_head1:
                     st.subheader(f"📑 Karton: {ins.get('naziv_proizvodjac', '')} (Inv. br: {izabrani_broj})")
-                with c_kart_2:
+                with c_head2:
                     pdf_data = generisi_pdf(ins, ds, de, db)
                     st.download_button("💾 PREUZMI PDF KARTON", data=pdf_data, file_name=f"Karton_{izabrani_broj}.pdf", mime="application/pdf", use_container_width=True)
 
-                t1, t2, t3, t4, t5 = st.tabs(["📋 Podaci", "🌾 Kulture", "🛠 Servis", "📏 Etalon", "⚖ Baždarenje"])
+                t_tabs = st.tabs(["📋 Podaci", "🌾 Kulture", "🛠 Servis", "📏 Etalon", "⚖ Baždarenje"])
                 
-                with t1:
+                with t_tabs[0]:
                     detalji_tab1 = [
-                        ("Proizvođač", "proizvodjac"), ("Model", "naziv_proizvodjac"),
-                        ("Serijski br.", "seriski_broj"), ("Sektor", "sektor"),
-                        ("Važi do", "vazi_do"), ("Upotreba od", "upotreba_od"),
-                        ("Opseg", "opseg_merenja"), ("Klasa", "klasa_tacnosti"),
-                        ("Preciznost", "preciznost"), ("Podeok", "podeok")
+                        ("🏭 Proizvođač", "proizvodjac"), ("📦 Model", "naziv_proizvodjac"),
+                        ("🔢 Serijski br.", "seriski_broj"), ("📍 Sektor", "sektor"),
+                        ("📅 Važi do", "vazi_do"), ("⏳ Upotreba od", "upotreba_od"),
+                        ("📏 Opseg", "opseg_merenja"), ("🎯 Klasa", "klasa_tacnosti"),
+                        ("⚖ Preciznost", "preciznost"), ("🔘 Podeok", "podeok")
                     ]
                     cols_k = st.columns(4)
                     count_k = 0
                     for lab, key in detalji_tab1:
                         val = ins.get(key)
                         if val and str(val).strip() not in ["", "None", "nan", "-"]:
-                            with cols_k[count_k % 4]: st.metric(lab, str(val))
+                            with cols_k[count_k % 4]:
+                                st.markdown(f"<p style='margin-bottom:-10px; font-size:0.9em; color:gray;'>{lab}</p>", unsafe_allow_html=True)
+                                st.info(val)
                             count_k += 1
 
-                with t2:
+                with t_tabs[1]:
                     m_n = str(ins.get('naziv_proizvodjac', '')).strip()
                     dk = run_query("SELECT kultura, opseg_vlage, protein FROM kulture_opsezi WHERE LOWER(naziv_proizvodjac) LIKE %s", (f"%{m_n.lower()}%",))
                     if not dk.empty: st.table(dk)
-                with t3:
+                with t_tabs[2]:
                     if not ds.empty: st.dataframe(ds, use_container_width=True, hide_index=True)
-                with t4:
+                with t_tabs[3]:
                     if not de.empty: st.dataframe(de, use_container_width=True, hide_index=True)
-                with t5:
+                with t_tabs[4]:
                     if not db.empty: st.dataframe(db, use_container_width=True, hide_index=True)
 
     else: st.warning("Tabela je prazna.")
-except Exception as e: st.error(f"Sistemska greška: {e}")
+except Exception as e: st.error(f"Greška: {e}")
