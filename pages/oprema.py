@@ -86,12 +86,16 @@ try:
         st.dataframe(apply_styling(df_prikaz), use_container_width=True)
 
     # --- MATIČNI KARTON ---
+        # --- MATIČNI KARTON ---
     if izabrani_broj:
         st.markdown("---")
         res = run_query("SELECT * FROM oprema WHERE inventarni_broj = %s", (izabrani_broj,))
+        
         if not res.empty:
-            ins = res.iloc.to_dict()
+            # FIX: Dodajemo [0] da uzmemo prvi red pre pretvaranja u dict
+            ins = res.iloc[0].to_dict() 
             st.subheader(f"📑 Matični karton: {ins.get('naziv_proizvodjac')} - {izabrani_broj}")
+
             
             # A. OPŠTI PODACI
             c1, c2, c3, c4, c5 = st.columns(5)
