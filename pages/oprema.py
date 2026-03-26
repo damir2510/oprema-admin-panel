@@ -45,7 +45,7 @@ if is_admin:
                 cur.execute(sql, [None if pd.isna(x) else x for x in row])
             conn.commit(); conn.close()
             st.sidebar.success("Podaci osveženi!"); st.cache_data.clear(); st.rerun()
-        except Exception as e: st.sidebar.error(f"Greška: {e}")
+        except Exception as e: st.sidebar.error(f"Greška pri uvozu: {e}")
 
 if st.sidebar.button("🗺️ Otvori Mapu", use_container_width=True): st.switch_page("pages/mapa_opreme.py")
 if st.sidebar.button("🚪 Odjavi se", use_container_width=True): 
@@ -69,14 +69,13 @@ try:
             if any(x in col for x in ['datum', 'vazi_do', 'upotreba_od']):
                 df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
 
-        # FILTRIRANJE
         if 'vrsta_aparata' in df.columns:
             vrste = ["SVE"] + sorted(df['vrsta_aparata'].dropna().unique().tolist())
-            izabrana_vrsta = st.selectbox("📁 Filtriraj po vrsti:", vrste)
+            izabrana_vrsta = st.selectbox("📁 Filtriraj po vrsti aparata:", vrste)
             if izabrana_vrsta != "SVE": df = df[df['vrsta_aparata'] == izabrana_vrsta]
 
-        # REORGANIZACIJA KOLONA ZA GLAVNU TABELU
-        red_kolona = ['inventarni_broj', 'sektor', 'proizvodjac', 'naziv_proizvodjac', 'seriski_broj', 'trenutni_radnik', 'zadnja_lokacija', 'vazi_do', 'napomena']
+        # REDOSLED KOLONA: Vrsta ispred Proizvođača
+        red_kolona = ['inventarni_broj', 'sektor', 'vrsta_aparata', 'proizvodjac', 'naziv_proizvodjac', 'seriski_broj', 'trenutni_radnik', 'zadnja_lokacija', 'vazi_do', 'napomena']
         df_prikaz = df[[c for c in red_kolona if c in df.columns]]
         
         pretraga = st.text_input("🔍 Pretraga:", "").lower()
@@ -86,18 +85,14 @@ try:
         st.dataframe(apply_styling(df_prikaz), use_container_width=True)
 
     # --- MATIČNI KARTON ---
-        # --- MATIČNI KARTON ---
     if izabrani_broj:
         st.markdown("---")
         res = run_query("SELECT * FROM oprema WHERE inventarni_broj = %s", (izabrani_broj,))
-        
         if not res.empty:
-            # FIX: Dodajemo [0] da uzmemo prvi red pre pretvaranja u dict
-            ins = res.iloc[0].to_dict() 
+            ins = res.iloc[0].to_dict() # FIX: iloc[0] za rečnik
             st.subheader(f"📑 Matični karton: {ins.get('naziv_proizvodjac')} - {izabrani_broj}")
-
             
-            # A. OPŠTI PODACI
+            # OPŠTI PODACI
             c1, c2, c3, c4, c5 = st.columns(5)
             c1.info(f"**Proizvođač:**\n\n{ins.get('proizvodjac', '-')}")
             c2.info(f"**Model:**\n\n{ins.get('naziv_proizvodjac', '-')}")
@@ -105,26 +100,27 @@ try:
             c4.info(f"**U upotrebi od:**\n\n{ins.get('upotreba_od', '-')}")
             c5.info(f"**Period provere:**\n\n{ins.get('period_provere', '1')} god.")
 
-            # B. TEHNIČKE KARAKTERISTIKE (Samo ako postoje)
+            # TEHNIČKE KARAKTERISTIKE
             tech_cols = [("Opseg merenja", "opseg_merenja"), ("Klasa tačnosti", "klasa_tacnosti"), ("Preciznost", "preciznost"), ("Podeok", "podeok"), ("Radna temp.", "radna_temperatura"), ("Rel. vlažnost", "rel_vlaznost")]
             cols_tech = st.columns(len(tech_cols))
             for i, (naslov, kljuc) in enumerate(tech_cols):
                 vrednost = ins.get(kljuc)
-                if vrednost and str(vrednost) != 'None':
+                if vrednost and str(vrednost).strip() not in ['None', '', 'nan']:
                     cols_tech[i].success(f"**{naslov}:**\n\n{vrednost}")
 
-            # C. AKCIJE (Drive i PDF)
+            # DRIVE I PDF
             col_d1, col_d2 = st.columns(2)
             putanja = ins.get('putanja_folder')
             with col_d1:
                 if putanja and str(putanja) != 'None':
-                    st.link_button("📂 OTVORI GOOGLE DRIVE FOLDER", putanja, type="primary", use_container_width=True)
+                    st.link_button("📂 OTVORI DRIVE FOLDER", putanja, type="primary", use_container_width=True)
                 else:
                     st.link_button("🔍 PRETRAŽI DRIVE", f"https://drive.google.com{izabrani_broj}", use_container_width=True)
             with col_d2:
-                st.button("🖨️ ŠTAMPAJ PDF MATIČNI KARTON", use_container_width=True)
+                # Ovde će ići generisanje PDF-a
+                st.button("🖨️ ŠTAMPAJ PDF", use_container_width=True)
 
-            # D. TABOVI ZA ISTORIJU I UNOS
+            # TABOVI
             t1, t2, t3, t4 = st.tabs(["🔧 Servis", "🧪 Etaloniranje", "📐 Baždarenje", "🌿 Kulture"])
             konfig = [(t1, "istorija_servisa", "datum_servisa", "Servis"), (t2, "istorija_etaloniranja", "datum_etaloniranja", "Etaloniranje"), (t3, "istorija_bazdarenja", "datum_bazdarenja", "Baždarenje")]
 
@@ -134,12 +130,10 @@ try:
                     st.dataframe(df_h, use_container_width=True)
                     if is_admin:
                         with st.form(f"f_{tab_ime}"):
-                            d_rada = st.date_input(f"Datum {nasl.lower()}a")
+                            d_rada = st.date_input(f"Datum {nasl}")
                             if nasl == "Servis":
-                                opis = st.text_area("Opis kvara / intervencije")
-                                br_dok = st.text_input("Broj radnog naloga")
-                            else:
-                                br_dok = st.text_input("Broj uverenja / rešenja")
+                                opis = st.text_area("Opis kvara"); br_dok = st.text_input("Br. radnog naloga")
+                            else: br_dok = st.text_input("Br. uverenja")
                             
                             if st.form_submit_button(f"Sačuvaj {nasl}"):
                                 period = ins.get('period_provere', 1)
@@ -153,7 +147,17 @@ try:
                                 conn.commit(); conn.close(); st.success("Ažurirano!"); st.rerun()
 
             with t4:
-                st.dataframe(run_query("SELECT * FROM kulture_opsezi WHERE inventarni_broj = %s", (izabrani_broj,)), use_container_width=True)
+                # Filtriramo kulture na osnovu naziva/modela aparata (naziv_proizvodjac)
+                model_aparata = ins.get('naziv_proizvodjac')
+                if model_aparata:
+                    df_k = run_query("SELECT * FROM kulture_opsezi WHERE naziv_proizvodjac = %s", (model_aparata,))
+                    if not df_k.empty:
+                        st.write(f"Definisani opsezi za model: **{model_aparata}**")
+                        st.dataframe(df_k, use_container_width=True)
+                    else:
+                        st.info(f"Nema definisanih kultura za model '{model_aparata}'.")
+                else:
+                    st.warning("Aparat nema definisan model za prikaz kultura.")
 
 except Exception as e:
-    st.error(f"❌ Greška: {e}")
+    st.error(f"❌ Greška sa bazom podataka: {e}")
