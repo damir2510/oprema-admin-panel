@@ -126,7 +126,7 @@ try:
             if izabrana_vrsta != "SVE": df = df[df['vrsta_aparata'] == izabrana_vrsta]
 
         # REDOSLED KOLONA: Vrsta ispred Proizvođača
-        red_kolona = ['inventarni_broj', 'sektor', 'vrsta_aparata', 'proizvodjac', 'naziv_proizvodjac', 'seriski_broj', 'trenutni_radnik', 'zadnja_lokacija', 'vazi_do', 'napomena']
+        red_kolona = ['inventarni_broj', 'sektor', 'vrsta_opreme', 'proizvodjac', 'naziv_proizvodjac', 'seriski_broj', 'trenutni_radnik', 'zadnja_lokacija', 'vazi_do', 'napomena']
         df_prikaz = df[[c for c in red_kolona if c in df.columns]]
         
         pretraga = st.text_input("🔍 Pretraga baze:", "").lower()
