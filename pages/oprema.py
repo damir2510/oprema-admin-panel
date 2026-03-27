@@ -10,7 +10,7 @@ from reportlab.lib import colors
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-# 1. KONFIGURACIJA
+# 1. KONFIGURACIJA I STIL
 st.set_page_config(page_title="Evidencija Opreme", layout="wide")
 
 st.markdown("""
@@ -21,7 +21,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Registracija fonta za PDF
+# Registracija fonta za PDF (Arial.ttf mora biti u root-u na GitHubu/Railway-u)
 try:
     pdfmetrics.registerFont(TTFont('Serbian', 'Arial.ttf'))
     FONT_NAME = 'Serbian'
@@ -40,11 +40,13 @@ def generisi_pdf_karton(ins, df_s, df_e, df_b, df_k):
     s_naslov = styles['Title']; s_naslov.fontName = FONT_NAME
     s_h2 = styles['Heading2']; s_h2.fontName = FONT_NAME
     s_n = styles['Normal']; s_n.fontName = FONT_NAME
+    
     elements = []
     inv_br = ins.get('inventarni_broj', 'N/A')
-    elements.append(Paragraph(f"MATIČNI KARTON INSTRUMENTA br: {inv_br}", s_naslov))
+    elements.append(Paragraph(f"MATIČNI KARTON OPREME br: {inv_br}", s_naslov))
     elements.append(Paragraph(f"Datum izveštaja: {datetime.now().strftime('%d.%m.%Y.')}", s_n))
     elements.append(Spacer(1, 20))
+    
     elements.append(Paragraph("1. TEHNIČKE KARAKTERISTIKE", s_h2))
     teh_podaci = [
         ["Proizvođač:", ins.get('proizvodjac', '-')],
@@ -60,6 +62,7 @@ def generisi_pdf_karton(ins, df_s, df_e, df_b, df_k):
     t1 = Table(teh_podaci, colWidths=[150, 300])
     t1.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('FONTNAME', (0,0), (-1,-1), FONT_NAME)]))
     elements.append(t1)
+
     sekcije = [("2. BAŽDARENJA", df_b), ("3. ETALONIRANJA", df_e), ("4. SERVISI", df_s), ("5. KULTURE / OPSEZI", df_k)]
     for naslov, df_sec in sekcije:
         elements.append(Spacer(1, 15)); elements.append(Paragraph(naslov, s_h2))
@@ -68,7 +71,8 @@ def generisi_pdf_karton(ins, df_s, df_e, df_b, df_k):
             t_sec = Table(data, hAlign='LEFT', repeatRows=1)
             t_sec.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), colors.lightgrey), ('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('FONTNAME', (0,0), (-1,-1), FONT_NAME), ('FONTSIZE', (0,0), (-1,-1), 8)]))
             elements.append(t_sec)
-        else: elements.append(Paragraph("Nema podataka.", s_n))
+        else: elements.append(Paragraph("Nema zabeleženih podataka.", s_n))
+    
     doc.build(elements)
     return buffer.getvalue()
 
@@ -99,11 +103,11 @@ if is_admin:
             sql = f"INSERT INTO {izabrana_tabela} ({','.join(cols)}) VALUES ({placeholders}) ON DUPLICATE KEY UPDATE {update_part}"
             for _, row in new_data.iterrows():
                 cur.execute(sql, [None if pd.isna(x) else x for x in row])
-            conn.commit(); conn.close(); st.sidebar.success("Osveženo!"); st.cache_data.clear(); st.rerun()
+            conn.commit(); conn.close(); st.sidebar.success("Podaci osveženi!"); st.cache_data.clear(); st.rerun()
         except Exception as e: st.sidebar.error(f"Greška: {e}")
 
-if st.sidebar.button("🗺️ Mapa", use_container_width=True): st.switch_page("pages/mapa_opreme.py")
-if st.sidebar.button("🚪 Odjava", use_container_width=True): st.session_state['ulogovan'] = False; st.rerun()
+if st.sidebar.button("🗺️ Otvori Mapu", use_container_width=True): st.switch_page("pages/mapa_opreme.py")
+if st.sidebar.button("🚪 Odjavi se", use_container_width=True): st.session_state['ulogovan'] = False; st.rerun()
 izabrani_broj = st.sidebar.text_input("🔢 Inventarski br. (za KARTON):", "").strip()
 
 # 4. GLAVNI PROGRAM
@@ -115,50 +119,65 @@ try:
         for col in df.columns:
             if any(x in col for x in ['datum', 'vazi_do', 'upotreba_od']):
                 df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
+
         if 'vrsta_aparata' in df.columns:
             vrste = ["SVE"] + sorted(df['vrsta_aparata'].dropna().unique().tolist())
             izabrana_vrsta = st.selectbox("📁 Filtriraj po vrsti aparata:", vrste)
             if izabrana_vrsta != "SVE": df = df[df['vrsta_aparata'] == izabrana_vrsta]
+
+        # REDOSLED KOLONA: Vrsta ispred Proizvođača
         red_kolona = ['inventarni_broj', 'sektor', 'vrsta_aparata', 'proizvodjac', 'naziv_proizvodjac', 'seriski_broj', 'trenutni_radnik', 'zadnja_lokacija', 'vazi_do', 'napomena']
         df_prikaz = df[[c for c in red_kolona if c in df.columns]]
-        pretraga = st.text_input("🔍 Pretraga:", "").lower()
+        
+        pretraga = st.text_input("🔍 Pretraga baze:", "").lower()
         if pretraga:
             df_prikaz = df_prikaz[df_prikaz.astype(str).apply(lambda x: x.str.lower().str.contains(pretraga)).any(axis=1)]
+
         st.dataframe(apply_styling(df_prikaz), use_container_width=True)
 
+    # --- MATIČNI KARTON ---
     if izabrani_broj:
         st.markdown("---")
         res = run_query("SELECT * FROM oprema WHERE inventarni_broj = %s", (izabrani_broj,))
         if not res.empty:
             ins = res.iloc[0].to_dict()
-            st.subheader(f"📑 Karton: {ins.get('naziv_proizvodjac')} - {izabrani_broj}")
+            st.subheader(f"📑 Matični karton: {ins.get('naziv_proizvodjac')} - {izabrani_broj}")
+            
+            # INFO PANEL - OPŠTI PODACI
             c1, c2, c3, c4, c5 = st.columns(5)
             c1.info(f"**Proizvođač:**\n\n{ins.get('proizvodjac', '-')}")
             c2.info(f"**Model:**\n\n{ins.get('naziv_proizvodjac', '-')}")
             c3.info(f"**Godina pr.:**\n\n{ins.get('godina_proizvodnje', '-')}")
             c4.info(f"**U upotrebi od:**\n\n{ins.get('upotreba_od', '-')}")
             c5.info(f"**Period provere:**\n\n{ins.get('period_provere', '1')} god.")
+
+            # TEHNIČKE KARAKTERISTIKE
             tech_cols = [("Opseg merenja", "opseg_merenja"), ("Klasa tačnosti", "klasa_tacnosti"), ("Preciznost", "preciznost"), ("Podeok", "podeok"), ("Radna temp.", "radna_temperatura"), ("Rel. vlažnost", "rel_vlaznost")]
             cols_tech = st.columns(len(tech_cols))
             for i, (naslov, kljuc) in enumerate(tech_cols):
                 vrednost = ins.get(kljuc)
                 if vrednost and str(vrednost).strip() not in ['None', '', 'nan']:
                     cols_tech[i].success(f"**{naslov}:**\n\n{vrednost}")
+
+            # DRIVE I PDF
             col_d1, col_d2 = st.columns(2)
             with col_d1:
                 putanja = ins.get('putanja_folder')
                 if putanja and str(putanja) != 'None': st.link_button("📂 OTVORI DRIVE FOLDER", putanja, type="primary", use_container_width=True)
                 else: st.link_button("🔍 PRETRAŽI DRIVE", f"https://drive.google.com{izabrani_broj}", use_container_width=True)
             with col_d2:
-                if st.button("🖨️ ŠTAMPAJ PDF", use_container_width=True):
-                    df_s = run_query("SELECT datum_servisa, opis_kvara, broj_uverenja FROM istorija_servisa WHERE inventarni_broj = %s", (izabrani_broj,))
-                    df_e = run_query("SELECT datum_etaloniranja, broj_uverenja, vazi_do FROM istorija_etaloniranja WHERE inventarni_broj = %s", (izabrani_broj,))
-                    df_b = run_query("SELECT datum_bazdarenja, broj_uverenja, vazi_do FROM istorija_bazdarenja WHERE inventarni_broj = %s", (izabrani_broj,))
-                    df_k = run_query("SELECT kultura, opseg_od, opseg_do FROM kulture_opsezi WHERE naziv_proizvodjac = %s", (ins.get('naziv_proizvodjac'),))
+                if st.button("🖨️ PRIPREMI PDF KARTON", use_container_width=True):
+                    df_s = run_query("SELECT * FROM istorija_servisa WHERE inventarni_broj = %s", (izabrani_broj,))
+                    df_e = run_query("SELECT * FROM istorija_etaloniranja WHERE inventarni_broj = %s", (izabrani_broj,))
+                    df_b = run_query("SELECT * FROM istorija_bazdarenja WHERE inventarni_broj = %s", (izabrani_broj,))
+                    df_k = run_query("SELECT * FROM kulture_opsezi WHERE naziv_proizvodjac = %s", (ins.get('naziv_proizvodjac'),))
                     pdf_bin = generisi_pdf_karton(ins, df_s, df_e, df_b, df_k)
-                    st.download_button(label="📥 PREUZMI PDF", data=pdf_bin, file_name=f"Karton_{izabrani_broj}.pdf", mime="application/pdf")
+                    st.download_button(label="📥 PREUZMI PDF", data=pdf_bin, file_name=f"Karton_{izabrani_broj}.pdf", mime="application/pdf", use_container_width=True)
+
+            # TABOVI
             t1, t2, t3, t4 = st.tabs(["🔧 Servis", "🧪 Etaloniranje", "📐 Baždarenje", "🌿 Kulture"])
             konfig = [(t1, "istorija_servisa", "datum_servisa", "Servis"), (t2, "istorija_etaloniranja", "datum_etaloniranja", "Etaloniranje"), (t3, "istorija_bazdarenja", "datum_bazdarenja", "Baždarenje")]
+
             for tab, tab_ime, kol_dat, nasl in konfig:
                 with tab:
                     df_h = run_query(f"SELECT * FROM {tab_ime} WHERE inventarni_broj = %s ORDER BY {kol_dat} DESC", (izabrani_broj,))
@@ -166,7 +185,7 @@ try:
                     if is_admin:
                         with st.form(f"f_{tab_ime}"):
                             d_rada = st.date_input(f"Datum {nasl}")
-                            if nasl == "Servis": opis = st.text_area("Opis kvara"); br_dok = st.text_input("Br. radnog naloga")
+                            if nasl == "Servis": opis = st.text_area("Opis kvara"); br_dok = st.text_input("Br. naloga")
                             else: br_dok = st.text_input("Br. uverenja")
                             if st.form_submit_button(f"Sačuvaj {nasl}"):
                                 period = ins.get('period_provere', 1); novi_rok = d_rada + pd.DateOffset(years=int(period))
